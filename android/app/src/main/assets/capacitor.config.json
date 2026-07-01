@@ -1,0 +1,10 @@
+{
+	"appId": "com.traderank.app",
+	"appName": "TradeRank",
+	"webDir": "www",
+	"bundledWebRuntime": false,
+	"server": {
+		"androidScheme": "https",
+		"cleartext": true
+	}
+}

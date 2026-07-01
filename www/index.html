@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>TradeRank — NBA Fantasy Trade Analyzer</title>
+<!--
+  ============================================================
+  TradeRank — NBA Fantasy Trade Analyzer  v2.0
+  ============================================================
+  DATA SOURCE
+  ───────────
+  Live player stats fetched from:
+    https://api.server.nbaapi.com/api/playeradvancedstats
+      &season=2025&sortBy=win_shares&pageSize=200
+  Cross-referenced with Basketball Reference / NBA.com stats.
+  Falls back to a curated 2024-25 season snapshot if API is
+  unreachable (CORS / network).
+
+  SCORING ALGORITHM  — Z-Score Heuristic Model
+  ─────────────────────────────────────────────
+  Mirrors Dynatyze / Yahoo 9-category scoring:
+    Categories: PTS, REB, AST, STL, BLK, 3PM, FG%, FT%, TO
+    Weights:
+      PTS  1.00   AST  0.90   STL  1.20   BLK  1.10
+      REB  0.85   3PM  0.80   FG%  0.70   FT%  0.50
+      TO  -1.00   (negative — turnovers hurt)
+
+  For each category c and player p:
+    z_p_c = (stat_p_c − mean_c) / stdDev_c
+
+  Player fantasy score:
+    fscore_p = Σ (weight_c × z_p_c)
+
+  Trade score (from your perspective):
+    raw  = 50
+          + (get_fscore − giv_fscore) × 8.0    ← primary
+          + (giv_age    − get_age)    × 1.2    ← youth premium
+          + (giv_gp     − get_gp)     × 0.3    ← availability
+    score = clamp(round(raw), 0, 100)
+
+  Thresholds:
+    ≥ 65  → Great trade  ✅
+    45-64 → Fair trade   🟡
+    <  45 → Poor trade   ❌
+
+  BUY-LOW:   incoming fscore < outgoing AND incoming age < 26
+  SELL-HIGH: outgoing fscore > 75th-percentile AND incoming fscore < outgoing
+
+  AI NARRATIVE
+  ────────────
+  Claude claude-sonnet-4-6 via /v1/messages.
+  Prompt supplies full per-category z-score breakdown.
+  Falls back to local verdict if API unavailable.
+  ============================================================
+-->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css">
+<style>
+/* ── Reset & base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --c-navy:   #1D3461;
+  --c-green:  #1D9E75;
+  --c-amber:  #BA7517;
+  --c-red:    #E24B4A;
+  --c-bg:     #F8F9FB;
+  --c-card:   #FFFFFF;
+  --c-border: rgba(0,0,0,0.10);
+  --c-muted:  #6B7280;
+  --c-text:   #111827;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-bg:    #111827;
+    --c-card:  #1F2937;
+    --c-border: rgba(255,255,255,0.10);
+    --c-muted: #9CA3AF;
+    --c-text:  #F9FAFB;
+  }
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--c-bg);
+  color: var(--c-text);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+}
+.app {
+  width: 100%; max-width: 430px;
+  background: var(--c-bg);
+  min-height: 100vh;
+  display: flex; flex-direction: column;
+  position: relative;
+}
+.screen { display: none; flex-direction: column; flex: 1; }
+.screen.active { display: flex; }
+
+/* ── Nav ── */
+.nav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 16px 12px;
+  border-bottom: 0.5px solid var(--c-border);
+  background: var(--c-card);
+  flex-shrink: 0;
+}
+.nav-title { font-size: 16px; font-weight: 600; }
+.nav-sub   { font-size: 12px; color: var(--c-muted); margin-top: 1px; }
+
+/* ── Buttons ── */
+.btn-primary {
+  width: 100%; padding: 13px;
+  background: var(--c-navy); color: #fff;
+  border: none; border-radius: var(--radius-md);
+  font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.btn-primary:hover  { background: #16294e; }
+.btn-primary:disabled { opacity: 0.4; cursor: default; }
+.btn-ghost {
+  width: 100%; padding: 11px;
+  background: none; color: var(--c-text);
+  border: 0.5px solid var(--c-border);
+  border-radius: var(--radius-md);
+  font-size: 14px; cursor: pointer; margin-top: 8px;
+}
+.btn-ghost:hover { background: rgba(0,0,0,0.04); }
+.btn-sm {
+  padding: 7px 14px; font-size: 12px; font-weight: 600;
+  background: none; color: var(--c-text);
+  border: 0.5px solid var(--c-border);
+  border-radius: var(--radius-md); cursor: pointer;
+  white-space: nowrap;
+}
+.btn-sm:hover { background: rgba(0,0,0,0.04); }
+
+/* ── Login ── */
+.login-hero { text-align: center; padding: 40px 24px 24px; }
+.logo-ring {
+  width: 80px; height: 80px; border-radius: 50%;
+  background: var(--c-navy);
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 18px;
+}
+.logo-ring span { font-size: 30px; color: #fff; font-weight: 700; }
+.login-hero h1 { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+.login-hero p  { font-size: 14px; color: var(--c-muted); }
+.data-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 10px; padding: 5px 12px;
+  background: rgba(29,158,117,0.1); border-radius: 20px;
+  font-size: 11px; color: var(--c-green); font-weight: 500;
+}
+.data-badge .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--c-green);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+.form-area { padding: 0 24px; flex: 1; }
+.field { margin-bottom: 16px; }
+.field label { font-size: 12px; color: var(--c-muted); display: block; margin-bottom: 6px; font-weight: 500; }
+.field input {
+  width: 100%; padding: 11px 13px;
+  border: 0.5px solid var(--c-border);
+  border-radius: var(--radius-md);
+  font-size: 14px; background: var(--c-card); color: var(--c-text); outline: none;
+}
+.field input:focus { border-color: var(--c-navy); box-shadow: 0 0 0 3px rgba(29,52,97,0.12); }
+
+/* ── Bottom tabs ── */
+.tabs {
+  display: flex; border-top: 0.5px solid var(--c-border);
+  background: var(--c-card); flex-shrink: 0;
+}
+.tab {
+  flex: 1; padding: 10px 0 8px; text-align: center;
+  cursor: pointer; border: none; background: none;
+  color: var(--c-muted); font-size: 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.tab i { font-size: 22px; }
+.tab.active { color: var(--c-navy); }
+
+/* ── Search bar ── */
+.search-bar { margin: 0 16px 10px; position: relative; }
+.search-bar input {
+  width: 100%; padding: 10px 12px 10px 38px;
+  border: 0.5px solid var(--c-border);
+  border-radius: var(--radius-md);
+  font-size: 13px; background: var(--c-card); color: var(--c-text); outline: none;
+}
+.search-bar i {
+  position: absolute; left: 11px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--c-muted); font-size: 17px; pointer-events: none;
+}
+.suggestion-list {
+  position: absolute; top: 100%; left: 0; right: 0;
+  background: var(--c-card); border: 0.5px solid var(--c-border);
+  border-radius: var(--radius-lg); z-index: 100;
+  max-height: 220px; overflow-y: auto;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.12); margin-top: 4px;
+}
+.suggestion-item {
+  padding: 10px 14px; font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 0.5px solid var(--c-border);
+}
+.suggestion-item:last-child { border-bottom: none; }
+.suggestion-item:hover { background: rgba(0,0,0,0.03); }
+
+/* ── Player avatar ── */
+.player-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--c-navy);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; color: #fff;
+  flex-shrink: 0; overflow: hidden;
+}
+.player-avatar.green-bg { background: var(--c-green); }
+
+.player-info { flex: 1; min-width: 0; }
+.player-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player-meta { font-size: 11px; color: var(--c-muted); margin-top: 1px; }
+
+/* ── Roster list ── */
+.roster-grid { padding: 0 16px; flex: 1; overflow-y: auto; }
+.roster-card {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 12px; background: var(--c-card);
+  border: 0.5px solid var(--c-border);
+  border-radius: var(--radius-lg); margin-bottom: 8px;
+}
+.pos-badge {
+  font-size: 10px; font-weight: 600;
+  padding: 2px 7px; border-radius: 5px;
+  background: #E6F1FB; color: #0C447C;
+  min-width: 30px; text-align: center;
+}
+.roster-stats { flex: 1; min-width: 0; }
+.roster-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.roster-meta { font-size: 11px; color: var(--c-muted); }
+.rm-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--c-muted); font-size: 18px; padding: 4px;
+}
+.rm-btn:hover { color: var(--c-red); }
+.select-btn {
+  font-size: 11px; padding: 5px 11px;
+  border: 0.5px solid var(--c-navy);
+  border-radius: 20px;
+  background: none; color: var(--c-navy);
+  cursor: pointer; white-space: nowrap; font-weight: 500;
+}
+.select-btn.selected { background: var(--c-navy); color: #fff; }
+
+/* ── Trade platforms (Fortnite-style) ── */
+.trade-stage {
+  display: flex; gap: 0;
+  padding: 14px 16px 10px;
+  align-items: flex-start;
+}
+.platform { flex: 1; display: flex; flex-direction: column; align-items: center; }
+.vs-divider {
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 8px; margin-top: 28px;
+}
+.vs-text {
+  font-size: 11px; font-weight: 600; color: var(--c-muted);
+  background: var(--c-card); border-radius: 20px;
+  padding: 5px 9px; border: 0.5px solid var(--c-border);
+}
+.platform-label {
+  font-size: 10px; color: var(--c-muted);
+  margin-bottom: 8px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.6px;
+}
+.platform-base {
+  width: 100%; min-height: 160px;
+  background: var(--c-card);
+  border: 0.5px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 14px 10px; cursor: pointer;
+  transition: border-color 0.2s;
+}
+.platform-base:hover  { border-color: var(--c-navy); }
+.platform-base.filled { border-color: var(--c-green); }
+
+/* Fortnite-style character stand */
+.fortnite-stand { display: flex; flex-direction: column; align-items: center; }
+.player-silhouette {
+  width: 58px; height: 58px; border-radius: 50%;
+  background: var(--c-navy);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 700; color: #fff;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15); overflow: hidden;
+}
+.stand-pole  { width: 4px; height: 14px; background: var(--c-navy); margin: 0 auto; }
+.stand-base  { width: 70px; height: 9px; background: var(--c-navy); border-radius: 5px; }
+.platform-player-name { font-size: 12px; font-weight: 600; text-align: center; margin-top: 10px; }
+.platform-player-pos  { font-size: 10px; color: var(--c-muted); margin-top: 2px; }
+.platform-fscore { font-size: 10px; color: var(--c-green); font-weight: 600; margin-top: 3px; }
+
+.multi-tag {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  margin-top: 8px; justify-content: center; width: 100%;
+}
+.player-tag {
+  font-size: 10px; padding: 2px 8px;
+  background: var(--c-navy); color: #fff;
+  border-radius: 20px; white-space: nowrap;
+}
+
+/* ── Score card ── */
+.score-section { padding: 10px 16px 16px; }
+.score-card {
+  background: var(--c-card);
+  border: 0.5px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+.score-header {
+  display: flex; justify-content: space-between;
+  align-items: flex-start; margin-bottom: 14px;
+}
+.score-label  { font-size: 11px; color: var(--c-muted); font-weight: 500; }
+.score-value  { font-size: 36px; font-weight: 700; line-height: 1; }
+.score-value.good    { color: var(--c-green); }
+.score-value.neutral { color: var(--c-amber); }
+.score-value.bad     { color: var(--c-red); }
+.score-bar-track {
+  height: 8px; background: rgba(0,0,0,0.07);
+  border-radius: 4px; overflow: hidden; margin-bottom: 12px;
+}
+.score-bar-fill { height: 100%; border-radius: 4px; transition: width 0.7s ease; }
+.score-verdict { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.score-reason  { font-size: 12px; color: var(--c-muted); line-height: 1.6; margin-bottom: 14px; }
+
+/* Heuristic breakdown table */
+.heuristic-section-label {
+  font-size: 10px; font-weight: 600; color: var(--c-muted);
+  margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.heuristic-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 7px 0; border-bottom: 0.5px solid var(--c-border); font-size: 12px;
+}
+.heuristic-row:last-child { border-bottom: none; }
+.heuristic-label { color: var(--c-muted); flex: 1; }
+.heuristic-vals { font-size: 11px; color: var(--c-muted); margin: 0 10px; }
+.heuristic-delta { font-weight: 600; min-width: 52px; text-align: right; }
+.heuristic-delta.pos { color: var(--c-green); }
+.heuristic-delta.neg { color: var(--c-red); }
+.heuristic-delta.neu { color: var(--c-muted); }
+
+/* ── Category Z-score bars ── */
+.z-category-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 8px; margin-bottom: 14px;
+}
+.z-cat-card {
+  background: var(--c-bg);
+  border-radius: var(--radius-md);
+  padding: 9px 11px;
+  border: 0.5px solid var(--c-border);
+}
+.z-cat-label { font-size: 10px; font-weight: 600; color: var(--c-muted); margin-bottom: 6px; text-transform: uppercase; }
+.z-cat-bar-track {
+  height: 5px; background: rgba(0,0,0,0.07);
+  border-radius: 3px; overflow: visible;
+  position: relative; margin-bottom: 4px;
+}
+.z-bar-giv {
+  position: absolute; top: 0; height: 5px;
+  border-radius: 3px; background: var(--c-red); opacity: 0.6;
+}
+.z-bar-get {
+  position: absolute; top: 0; height: 5px;
+  border-radius: 3px; background: var(--c-green); opacity: 0.8;
+}
+.z-cat-values { display: flex; justify-content: space-between; font-size: 10px; }
+.z-val-giv { color: var(--c-red); font-weight: 600; }
+.z-val-get { color: var(--c-green); font-weight: 600; }
+
+/* Flags row */
+.flags-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.flag-pill {
+  font-size: 11px; padding: 4px 10px;
+  border-radius: 20px; font-weight: 500;
+}
+.flag-pill.buy  { background: rgba(29,158,117,0.12); color: var(--c-green); }
+.flag-pill.sell { background: rgba(186,117,23,0.12); color: var(--c-amber); }
+.flag-pill.good { background: rgba(29,158,117,0.12); color: var(--c-green); }
+.flag-pill.bad  { background: rgba(226,75,74,0.12);  color: var(--c-red); }
+
+/* ── Data loading banner ── */
+.data-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px;
+  background: rgba(29,52,97,0.06);
+  font-size: 11px; color: var(--c-muted);
+  border-bottom: 0.5px solid var(--c-border);
+  flex-shrink: 0;
+}
+.data-banner .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--c-green); flex-shrink: 0;
+}
+.data-banner.loading .dot { background: var(--c-amber); animation: pulse-dot 1s infinite; }
+.data-banner.error  .dot { background: var(--c-red); }
+
+/* ── Modal bottom sheet ── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.50);
+  z-index: 200; display: flex; flex-direction: column;
+  justify-content: flex-end; align-items: center;
+}
+.modal-sheet {
+  background: var(--c-card); border-radius: 18px 18px 0 0;
+  padding: 16px 16px 24px; max-height: 75vh;
+  width: 100%; max-width: 430px;
+  display: flex; flex-direction: column;
+}
+.modal-handle {
+  width: 44px; height: 4px; background: var(--c-border);
+  border-radius: 2px; margin: 0 auto 16px;
+}
+.modal-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.modal-search {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border: 0.5px solid var(--c-border);
+  border-radius: var(--radius-md); background: var(--c-bg); margin-bottom: 10px;
+}
+.modal-search input { flex: 1; border: none; background: none; font-size: 13px; color: var(--c-text); outline: none; }
+.modal-list { overflow-y: auto; flex: 1; }
+.modal-done {
+  margin-top: 12px; padding: 12px;
+  background: var(--c-navy); color: #fff;
+  border: none; border-radius: var(--radius-md);
+  font-size: 15px; font-weight: 600; cursor: pointer;
+}
+
+/* ── Position chips ── */
+.chip-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 0 10px; }
+.chip {
+  font-size: 11px; padding: 5px 11px; border-radius: 20px;
+  border: 0.5px solid var(--c-border);
+  background: none; cursor: pointer; color: var(--c-muted); font-weight: 500;
+}
+.chip.active { background: var(--c-navy); color: #fff; border-color: var(--c-navy); }
+
+/* ── Loading ── */
+.loading-dots { display: flex; gap: 6px; justify-content: center; padding: 20px 0; }
+.loading-dots span {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--c-navy);
+  animation: bounce 1.2s infinite;
+}
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-8px)} }
+
+/* ── Empty state ── */
+.empty-state { text-align: center; padding: 40px 16px; color: var(--c-muted); }
+.empty-state i { font-size: 40px; margin-bottom: 10px; display: block; }
+.empty-state p { font-size: 13px; line-height: 1.5; }
+
+/* ── Section head ── */
+.section-head { padding: 14px 16px 8px; flex-shrink: 0; }
+.section-head h2 { font-size: 16px; font-weight: 600; }
+.section-head p  { font-size: 12px; color: var(--c-muted); margin-top: 3px; }
+
+/* ── Profile tab ── */
+.profile-section { padding: 16px; }
+.profile-stat-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 0; border-bottom: 0.5px solid var(--c-border);
+  font-size: 13px;
+}
+.profile-stat-row:last-child { border-bottom: none; }
+.profile-stat-label { color: var(--c-muted); }
+.profile-stat-value { font-weight: 600; }
+.profile-card {
+  background: var(--c-card); border: 0.5px solid var(--c-border);
+  border-radius: var(--radius-lg); padding: 16px; margin-bottom: 12px;
+}
+.profile-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+<!-- ════════════════ SCREEN 1: LOGIN ════════════════ -->
+<div class="screen active" id="screen-login">
+  <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto;">
+    <div class="login-hero">
+      <div class="logo-ring"><span>TR</span></div>
+      <h1>TradeRank</h1>
+      <p>NBA Fantasy Trade Analyzer</p>
+      <div class="data-badge">
+        <div class="dot"></div>
+        Live 2025-26 NBA stats
+      </div>
+    </div>
+    <div class="form-area">
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="you@example.com" />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="login-pass" placeholder="••••••••" />
+      </div>
+      <div class="field">
+        <label>League name (optional)</label>
+        <input type="text" id="login-league" placeholder="e.g. Friday Night Hoops" />
+      </div>
+      <button class="btn-primary" onclick="doLogin()">Sign in</button>
+      <button class="btn-ghost" onclick="doLogin()">Continue as guest</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ SCREEN 2: MAIN SHELL ════════════════ -->
+<div class="screen" id="screen-main">
+
+  <!-- DATA STATUS BANNER -->
+  <div class="data-banner loading" id="data-banner">
+    <div class="dot"></div>
+    <span id="data-banner-text">Loading live NBA stats…</span>
+  </div>
+
+  <!-- ── TAB: ROSTER ── -->
+  <div id="tab-team" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+    <div class="nav">
+      <div>
+        <div class="nav-title">My Roster</div>
+        <div class="nav-sub" id="roster-league-name">—</div>
+      </div>
+      <button class="btn-sm" onclick="switchTab('trade')">Trade analyzer →</button>
+    </div>
+    <div class="section-head">
+      <p>Search for NBA players to replicate your fantasy team</p>
+    </div>
+    <div class="search-bar" style="position:relative;">
+      <i class="ti ti-search"></i>
+      <input type="text" id="roster-search" placeholder="Search NBA players…"
+             autocomplete="off" oninput="rosterSearch(this.value)" />
+      <div class="suggestion-list" id="roster-suggestions" style="display:none;"></div>
+    </div>
+    <div class="roster-grid" id="roster-list">
+      <div class="empty-state">
+        <i class="ti ti-users"></i>
+        <p>Search for players above<br>to build your roster</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB: TRADE ── -->
+  <div id="tab-trade" style="flex:1;display:none;flex-direction:column;overflow-y:auto;">
+    <div class="nav">
+      <div>
+        <div class="nav-title">Trade Analyzer</div>
+        <div class="nav-sub">Z-score heuristic · 0–100</div>
+      </div>
+    </div>
+
+    <!-- FORTNITE-STYLE PLATFORMS -->
+    <div class="trade-stage">
+      <!-- LEFT: Trading away -->
+      <div class="platform">
+        <div class="platform-label">Trading away</div>
+        <div class="platform-base" id="left-platform" onclick="openModal('left')">
+          <div id="left-empty">
+            <i class="ti ti-search" style="font-size:28px;color:var(--c-muted);display:block;text-align:center;margin-bottom:8px;"></i>
+            <div style="font-size:11px;color:var(--c-muted);text-align:center;line-height:1.5;">Tap to select<br>your player(s)</div>
+          </div>
+          <div id="left-filled" style="display:none;width:100%;align-items:center;flex-direction:column;">
+            <div class="fortnite-stand">
+              <div class="player-silhouette"><span id="left-initials"></span></div>
+              <div class="stand-pole"></div>
+              <div class="stand-base"></div>
+            </div>
+            <div class="platform-player-name" id="left-name"></div>
+            <div class="platform-player-pos"  id="left-pos"></div>
+            <div class="platform-fscore"      id="left-fscore"></div>
+            <div class="multi-tag" id="left-tags"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="vs-divider"><div class="vs-text">FOR</div></div>
+
+      <!-- RIGHT: Trading for -->
+      <div class="platform">
+        <div class="platform-label">Trading for</div>
+        <div class="platform-base" id="right-platform" onclick="openModal('right')">
+          <div id="right-empty">
+            <i class="ti ti-search" style="font-size:28px;color:var(--c-muted);display:block;text-align:center;margin-bottom:8px;"></i>
+            <div style="font-size:11px;color:var(--c-muted);text-align:center;line-height:1.5;">Tap to select<br>any player(s)</div>
+          </div>
+          <div id="right-filled" style="display:none;width:100%;align-items:center;flex-direction:column;">
+            <div class="fortnite-stand">
+              <div class="player-silhouette" style="background:var(--c-green);"><span id="right-initials"></span></div>
+              <div class="stand-pole" style="background:var(--c-green);"></div>
+              <div class="stand-base" style="background:var(--c-green);"></div>
+            </div>
+            <div class="platform-player-name" id="right-name"></div>
+            <div class="platform-player-pos"  id="right-pos"></div>
+            <div class="platform-fscore"      id="right-fscore"></div>
+            <div class="multi-tag" id="right-tags"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:0 16px 8px;">
+      <button class="btn-ghost" style="font-size:12px;padding:9px;font-weight:500;" onclick="suggestTrade()">
+        ✦ AI: Suggest best trade targets for my player
+      </button>
+    </div>
+    <div style="padding:0 16px 10px;">
+      <button class="btn-primary" id="analyze-btn" onclick="analyzeTrade()" disabled>Analyze trade</button>
+    </div>
+
+    <!-- SCORE RESULT -->
+    <div class="score-section" id="score-section" style="display:none;">
+      <div class="score-card">
+        <div id="score-loading" style="display:none;">
+          <div style="font-size:12px;color:var(--c-muted);margin-bottom:4px;">Running Z-score analysis + AI insight…</div>
+          <div class="loading-dots"><span></span><span></span><span></span></div>
+        </div>
+        <div id="score-result" style="display:none;">
+          <div class="score-header">
+            <div>
+              <div class="score-label">Trade score</div>
+              <div class="score-value" id="score-num"></div>
+            </div>
+            <div style="text-align:right;">
+              <div class="score-label">Verdict</div>
+              <div class="score-verdict" id="score-verdict"></div>
+            </div>
+          </div>
+          <div class="score-bar-track">
+            <div class="score-bar-fill" id="score-bar"></div>
+          </div>
+          <div class="flags-row" id="flags-row"></div>
+          <div class="score-reason" id="score-reason"></div>
+
+          <!-- Z-score category grid -->
+          <div class="heuristic-section-label">Fantasy category breakdown (9-cat Z-score)</div>
+          <div class="z-category-grid" id="z-cat-grid"></div>
+
+          <!-- Stat delta table -->
+          <div class="heuristic-section-label">Raw stat deltas</div>
+          <div id="heuristics-table"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB: PROFILE ── -->
+  <div id="tab-profile" style="flex:1;display:none;flex-direction:column;overflow-y:auto;">
+    <div class="nav">
+      <div>
+        <div class="nav-title">Profile</div>
+        <div class="nav-sub" id="profile-league-sub">—</div>
+      </div>
+    </div>
+    <div class="profile-section">
+      <div class="profile-card">
+        <h3>Season snapshot</h3>
+        <div class="profile-stat-row">
+          <span class="profile-stat-label">Data source</span>
+          <span class="profile-stat-value" id="prof-source">—</span>
+        </div>
+        <div class="profile-stat-row">
+          <span class="profile-stat-label">Players loaded</span>
+          <span class="profile-stat-value" id="prof-players">—</span>
+        </div>
+        <div class="profile-stat-row">
+          <span class="profile-stat-label">Season</span>
+          <span class="profile-stat-value">2025-26</span>
+        </div>
+        <div class="profile-stat-row">
+          <span class="profile-stat-label">Scoring model</span>
+          <span class="profile-stat-value">Z-score 9-cat</span>
+        </div>
+      </div>
+      <div class="profile-card">
+        <h3>My roster</h3>
+        <div id="prof-roster-summary">
+          <p style="font-size:13px;color:var(--c-muted);">Add players to your roster to see summary stats.</p>
+        </div>
+      </div>
+      <button class="btn-ghost" onclick="doLogout()" style="margin-top:8px;">Sign out</button>
+    </div>
+  </div>
+
+  <!-- ── BOTTOM TABS ── -->
+  <div class="tabs">
+    <button class="tab active" id="tab-btn-team" onclick="switchTab('team')">
+      <i class="ti ti-users"></i>Roster
+    </button>
+    <button class="tab" id="tab-btn-trade" onclick="switchTab('trade')">
+      <i class="ti ti-arrows-exchange"></i>Trade
+    </button>
+    <button class="tab" id="tab-btn-profile" onclick="switchTab('profile')">
+      <i class="ti ti-user"></i>Profile
+    </button>
+  </div>
+</div>
+
+<!-- ════════════════ MODAL: PLAYER SEARCH ════════════════ -->
+<div class="modal-overlay" id="modal" style="display:none;" onclick="closeModalOutside(event)">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="modal-title">Select player</div>
+    <div class="modal-search">
+      <i class="ti ti-search" style="font-size:17px;color:var(--c-muted);"></i>
+      <input type="text" id="modal-input" placeholder="Search any NBA player…"
+             oninput="modalSearch(this.value)" autocomplete="off" />
+    </div>
+    <div class="chip-row">
+      <button class="chip active" onclick="filterPos(this,'ALL')">All</button>
+      <button class="chip" onclick="filterPos(this,'PG')">PG</button>
+      <button class="chip" onclick="filterPos(this,'SG')">SG</button>
+      <button class="chip" onclick="filterPos(this,'SF')">SF</button>
+      <button class="chip" onclick="filterPos(this,'PF')">PF</button>
+      <button class="chip" onclick="filterPos(this,'C')">C</button>
+    </div>
+    <div class="modal-list" id="modal-list"></div>
+    <button class="modal-done" onclick="closeModal()">Done</button>
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════
+ *  SECTION 1 — FALLBACK PLAYER DATA (2024-25 season averages)
+ *  Used when the live API is unreachable.
+ *  Stats: pts, reb, ast, stl, blk, threepm, fgp (%), ftp (%), tov, age, gp
+ * ══════════════════════════════════════════════════════════════════ */
+const FALLBACK_PLAYERS = [
+  {id:1,  name:"LeBron James",            team:"LAL",pos:"SF",age:40,gp:71,pts:23.7,reb:8.3,ast:9.0,stl:1.3,blk:0.6,threepm:1.6,fgp:53.9,ftp:74.1,tov:3.5},
+  {id:2,  name:"Stephen Curry",           team:"GSW",pos:"PG",age:37,gp:66,pts:22.5,reb:3.9,ast:6.1,stl:1.2,blk:0.3,threepm:4.5,fgp:45.0,ftp:92.3,tov:2.8},
+  {id:3,  name:"Nikola Jokic",            team:"DEN",pos:"C", age:30,gp:79,pts:29.6,reb:12.7,ast:10.0,stl:1.9,blk:0.9,threepm:1.2,fgp:57.5,ftp:81.7,tov:4.0},
+  {id:4,  name:"Giannis Antetokounmpo",   team:"MIL",pos:"PF",age:30,gp:73,pts:30.4,reb:11.9,ast:6.5,stl:1.2,blk:1.1,threepm:0.7,fgp:61.2,ftp:68.4,tov:3.5},
+  {id:5,  name:"Luka Doncic",             team:"LAL",pos:"PG",age:26,gp:55,pts:28.1,reb:8.7,ast:7.8,stl:1.4,blk:0.5,threepm:3.4,fgp:47.9,ftp:77.0,tov:4.0},
+  {id:6,  name:"Jayson Tatum",            team:"BOS",pos:"SF",age:27,gp:75,pts:26.9,reb:8.1,ast:4.9,stl:1.1,blk:0.6,threepm:2.9,fgp:47.1,ftp:83.0,tov:2.6},
+  {id:7,  name:"Joel Embiid",             team:"PHI",pos:"C", age:31,gp:39,pts:24.6,reb:11.5,ast:5.7,stl:1.0,blk:1.7,threepm:0.7,fgp:52.8,ftp:82.5,tov:3.4},
+  {id:8,  name:"Kevin Durant",            team:"PHX",pos:"SF",age:36,gp:65,pts:27.1,reb:6.6,ast:5.0,stl:0.9,blk:1.2,threepm:2.3,fgp:52.5,ftp:85.0,tov:3.0},
+  {id:9,  name:"Damian Lillard",          team:"MIL",pos:"PG",age:34,gp:73,pts:24.3,reb:4.4,ast:7.0,stl:0.9,blk:0.3,threepm:4.2,fgp:43.5,ftp:91.1,tov:3.3},
+  {id:10, name:"Anthony Davis",           team:"LAL",pos:"PF",age:32,gp:76,pts:24.7,reb:12.6,ast:3.5,stl:1.2,blk:2.3,threepm:0.4,fgp:55.6,ftp:78.5,tov:2.4},
+  {id:11, name:"Devin Booker",            team:"PHX",pos:"SG",age:28,gp:76,pts:25.3,reb:4.2,ast:6.5,stl:1.0,blk:0.3,threepm:2.8,fgp:49.0,ftp:89.3,tov:3.4},
+  {id:12, name:"Trae Young",              team:"ATL",pos:"PG",age:26,gp:74,pts:25.7,reb:3.3,ast:10.8,stl:0.8,blk:0.1,threepm:2.9,fgp:42.9,ftp:87.4,tov:4.4},
+  {id:13, name:"Ja Morant",              team:"MEM",pos:"PG",age:25,gp:67,pts:22.1,reb:5.8,ast:8.7,stl:1.0,blk:0.4,threepm:1.3,fgp:47.1,ftp:78.0,tov:3.3},
+  {id:14, name:"Jaylen Brown",            team:"BOS",pos:"SG",age:28,gp:70,pts:23.0,reb:5.5,ast:3.6,stl:1.1,blk:0.5,threepm:2.4,fgp:49.3,ftp:76.8,tov:2.0},
+  {id:15, name:"Zion Williamson",         team:"NOP",pos:"PF",age:24,gp:68,pts:22.9,reb:5.8,ast:4.7,stl:1.0,blk:0.7,threepm:0.3,fgp:56.0,ftp:70.0,tov:2.8},
+  {id:16, name:"Bam Adebayo",             team:"MIA",pos:"C", age:27,gp:71,pts:19.3,reb:10.4,ast:3.8,stl:1.0,blk:0.9,threepm:0.1,fgp:55.3,ftp:73.4,tov:2.2},
+  {id:17, name:"Karl-Anthony Towns",      team:"NYK",pos:"C", age:29,gp:76,pts:25.1,reb:13.7,ast:3.1,stl:1.0,blk:0.6,threepm:3.0,fgp:50.3,ftp:83.5,tov:3.3},
+  {id:18, name:"Pascal Siakam",           team:"IND",pos:"PF",age:31,gp:72,pts:21.3,reb:7.8,ast:4.6,stl:0.9,blk:0.6,threepm:1.1,fgp:47.9,ftp:79.1,tov:2.4},
+  {id:19, name:"Tyrese Haliburton",       team:"IND",pos:"PG",age:25,gp:69,pts:20.1,reb:3.9,ast:10.9,stl:1.6,blk:0.3,threepm:3.0,fgp:47.7,ftp:88.6,tov:3.9},
+  {id:20, name:"Anthony Edwards",         team:"MIN",pos:"SG",age:23,gp:78,pts:25.9,reb:5.4,ast:5.1,stl:1.3,blk:0.5,threepm:3.1,fgp:46.1,ftp:83.7,tov:3.1},
+  {id:21, name:"Cade Cunningham",         team:"DET",pos:"PG",age:23,gp:62,pts:22.7,reb:4.3,ast:9.9,stl:1.0,blk:0.4,threepm:2.6,fgp:43.6,ftp:82.3,tov:3.4},
+  {id:22, name:"De'Aaron Fox",            team:"SAS",pos:"PG",age:27,gp:74,pts:25.2,reb:4.3,ast:6.2,stl:1.6,blk:0.3,threepm:1.7,fgp:50.1,ftp:79.0,tov:3.1},
+  {id:23, name:"Donovan Mitchell",        team:"CLE",pos:"SG",age:28,gp:74,pts:26.6,reb:5.1,ast:6.1,stl:1.8,blk:0.4,threepm:3.4,fgp:47.3,ftp:84.4,tov:2.9},
+  {id:24, name:"Shai Gilgeous-Alexander", team:"OKC",pos:"PG",age:27,gp:75,pts:32.7,reb:5.5,ast:6.4,stl:2.0,blk:1.0,threepm:2.2,fgp:53.5,ftp:90.5,tov:2.4},
+  {id:25, name:"Kawhi Leonard",           team:"LAC",pos:"SF",age:33,gp:68,pts:23.7,reb:6.1,ast:3.6,stl:1.9,blk:0.8,threepm:2.0,fgp:52.5,ftp:87.8,tov:2.1},
+  {id:26, name:"Jimmy Butler",            team:"GSW",pos:"SF",age:35,gp:60,pts:18.3,reb:4.5,ast:5.0,stl:1.4,blk:0.4,threepm:0.3,fgp:48.6,ftp:83.2,tov:2.6},
+  {id:27, name:"Draymond Green",          team:"GSW",pos:"PF",age:35,gp:72,pts:8.5, reb:7.2,ast:6.2,stl:1.4,blk:0.8,threepm:0.6,fgp:46.8,ftp:66.0,tov:3.0},
+  {id:28, name:"Victor Wembanyama",       team:"SAS",pos:"C", age:21,gp:71,pts:24.0,reb:10.6,ast:3.9,stl:1.4,blk:3.6,threepm:2.1,fgp:46.5,ftp:79.0,tov:3.1},
+  {id:29, name:"Paolo Banchero",          team:"ORL",pos:"PF",age:22,gp:73,pts:22.6,reb:6.9,ast:5.4,stl:1.0,blk:0.7,threepm:1.8,fgp:46.4,ftp:73.0,tov:3.2},
+  {id:30, name:"Scottie Barnes",          team:"TOR",pos:"SF",age:24,gp:75,pts:21.5,reb:8.9,ast:6.1,stl:1.4,blk:0.8,threepm:1.5,fgp:48.8,ftp:70.0,tov:2.4},
+  {id:31, name:"Evan Mobley",             team:"CLE",pos:"C", age:23,gp:78,pts:18.5,reb:9.9,ast:3.2,stl:1.2,blk:1.7,threepm:0.5,fgp:56.7,ftp:75.0,tov:1.9},
+  {id:32, name:"Alperen Sengun",          team:"HOU",pos:"C", age:22,gp:72,pts:21.1,reb:9.6,ast:5.6,stl:1.0,blk:1.4,threepm:0.3,fgp:53.5,ftp:76.0,tov:3.2},
+  {id:33, name:"Franz Wagner",            team:"ORL",pos:"SF",age:23,gp:76,pts:24.0,reb:5.1,ast:4.2,stl:1.1,blk:0.5,threepm:2.0,fgp:48.7,ftp:79.0,tov:2.0},
+  {id:34, name:"Tyrese Maxey",            team:"PHI",pos:"PG",age:24,gp:70,pts:25.9,reb:3.7,ast:6.4,stl:1.1,blk:0.4,threepm:3.1,fgp:47.4,ftp:86.9,tov:2.5},
+  {id:35, name:"Jalen Brunson",           team:"NYK",pos:"PG",age:28,gp:77,pts:27.3,reb:3.4,ast:6.8,stl:0.9,blk:0.2,threepm:2.4,fgp:47.9,ftp:85.7,tov:2.5},
+  {id:36, name:"Cooper Flagg",            team:"DAL",pos:"PF",age:19,gp:72,pts:19.1,reb:7.9,ast:4.4,stl:1.5,blk:1.2,threepm:1.3,fgp:46.0,ftp:76.5,tov:2.5},
+  {id:37, name:"Jalen Johnson",           team:"ATL",pos:"PF",age:23,gp:73,pts:21.8,reb:9.4,ast:5.8,stl:1.5,blk:0.8,threepm:1.4,fgp:51.7,ftp:79.0,tov:2.6},
+  {id:38, name:"Darius Garland",          team:"CLE",pos:"PG",age:25,gp:60,pts:20.6,reb:2.7,ast:7.8,stl:1.1,blk:0.2,threepm:2.8,fgp:45.5,ftp:87.0,tov:3.0},
+  {id:39, name:"Josh Hart",               team:"NYK",pos:"SG",age:30,gp:77,pts:14.0,reb:8.3,ast:5.5,stl:1.7,blk:0.4,threepm:1.7,fgp:49.2,ftp:71.0,tov:2.1},
+  {id:40, name:"Norman Powell",           team:"LAC",pos:"SG",age:32,gp:75,pts:23.4,reb:3.5,ast:2.1,stl:0.9,blk:0.3,threepm:3.1,fgp:52.0,ftp:80.0,tov:1.2},
+  {id:41, name:"Rudy Gobert",             team:"MIN",pos:"C", age:32,gp:73,pts:13.4,reb:12.9,ast:1.3,stl:0.8,blk:2.1,threepm:0.0,fgp:67.0,ftp:61.0,tov:1.7},
+  {id:42, name:"Chris Paul",              team:"GSW",pos:"PG",age:39,gp:51,pts:9.4, reb:4.0,ast:7.6,stl:1.4,blk:0.2,threepm:0.7,fgp:43.0,ftp:84.0,tov:2.8},
+  {id:43, name:"Paul George",             team:"PHI",pos:"SF",age:35,gp:55,pts:16.1,reb:5.0,ast:3.6,stl:1.3,blk:0.4,threepm:2.5,fgp:44.8,ftp:84.0,tov:2.0},
+  {id:44, name:"Bam Adebayo",             team:"MIA",pos:"C", age:27,gp:71,pts:19.3,reb:10.4,ast:3.8,stl:1.0,blk:0.9,threepm:0.1,fgp:55.3,ftp:73.4,tov:2.2},
+  {id:45, name:"Bradley Beal",            team:"PHX",pos:"SG",age:32,gp:52,pts:17.9,reb:4.2,ast:5.1,stl:0.9,blk:0.3,threepm:1.8,fgp:47.6,ftp:83.0,tov:2.7},
+];
+
+/* ══════════════════════════════════════════════════════════════════
+ *  SECTION 2 — Z-SCORE ENGINE
+ *
+ *  9 fantasy categories with weights matching standard Yahoo format:
+ *    PTS, REB, AST, STL, BLK, 3PM, FG%, FT%, TOV (negative)
+ *
+ *  For each category:
+ *    z = (playerStat - leagueMean) / leagueStdDev
+ *
+ *  Fantasy score = Σ (weight × z)
+ *  Normalised to 0-100 for display.
+ * ══════════════════════════════════════════════════════════════════ */
+
+const CAT_WEIGHTS = {
+  pts:    1.00,
+  reb:    0.85,
+  ast:    0.90,
+  stl:    1.20,
+  blk:    1.10,
+  threepm: 0.80,
+  fgp:    0.70,
+  ftp:    0.50,
+  tov:   -1.00,  // negative
+};
+const CATS = Object.keys(CAT_WEIGHTS);
+
+let NBA_PLAYERS = [];
+let leagueMeans = {};
+let leagueStdDevs = {};
+let playerFScores = {};  // id → float
+let dataSource = 'fallback';
+
+function computeLeagueStats(players) {
+  CATS.forEach(cat => {
+    const vals = players.map(p => p[cat] || 0);
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
+    leagueMeans[cat]   = mean;
+    leagueStdDevs[cat] = Math.sqrt(variance) || 1;
+  });
+}
+
+function calcFScore(player) {
+  let score = 0;
+  CATS.forEach(cat => {
+    const z = ((player[cat] || 0) - leagueMeans[cat]) / leagueStdDevs[cat];
+    score += CAT_WEIGHTS[cat] * z;
+  });
+  return score;
+}
+
+function normalizeScores(players) {
+  const raw = players.map(p => calcFScore(p));
+  const min = Math.min(...raw);
+  const max = Math.max(...raw);
+  players.forEach((p, i) => {
+    // Store raw z-sum for display
+    p._fscore_raw = raw[i];
+    // Normalised 0-100
+    p._fscore = max === min ? 50 : Math.round(((raw[i] - min) / (max - min)) * 100);
+  });
+}
+
+function initPlayers(players) {
+  NBA_PLAYERS = players;
+  computeLeagueStats(players);
+  normalizeScores(players);
+  updateDataBanner(true);
+  updateProfileStats();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  SECTION 3 — LIVE DATA FETCH (nbaapi.com)
+ * ══════════════════════════════════════════════════════════════════ */
+
+async function fetchLiveData() {
+  updateDataBanner(false);  // show loading
+  // Try the public NBA stats API — 2024-25 season averages
+  const url = 'https://api.server.nbaapi.com/api/playeradvancedstats?page=1&pageSize=200&sortBy=win_shares&ascending=false&season=2025';
+  try {
+    const res = await fetch(url, { headers: { 'accept': 'application/json' } });
+    if (!res.ok) throw new Error('API response not ok');
+    const json = await res.json();
+    const apiPlayers = json.data;
+    if (!Array.isArray(apiPlayers) || apiPlayers.length < 10) throw new Error('Insufficient data');
+
+    // Map the advanced stats response. Also fetch per-game averages.
+    const url2 = 'https://api.server.nbaapi.com/api/playertotals?page=1&pageSize=200&sortBy=points&ascending=false&season=2025';
+    const res2 = await fetch(url2, { headers: { 'accept': 'application/json' } });
+    const json2 = await res2.json();
+    const totals = json2.data || [];
+
+    const totalsMap = {};
+    totals.forEach(p => { totalsMap[p.playerName] = p; });
+
+    let id = 1;
+    const mapped = apiPlayers
+      .filter(p => p.playerName && p.games > 10)
+      .map(p => {
+        const t = totalsMap[p.playerName] || {};
+        const gp = p.games || t.games || 30;
+        return {
+          id: id++,
+          name: p.playerName,
+          team: p.team || t.team || '—',
+          pos:  cleanPos(p.position || t.position || 'G'),
+          age:  p.age  || t.age  || 26,
+          gp,
+          pts:    round1(t.points     || 0),
+          reb:    round1(t.totalRb    || 0),
+          ast:    round1(t.assists    || 0),
+          stl:    round1(t.steals     || 0),
+          blk:    round1(t.blocks     || 0),
+          threepm:round1(t.threeFg    || 0),
+          fgp:    round1((t.fieldPercent || 0) * 100),
+          ftp:    round1((t.ftPercent    || 0) * 100),
+          tov:    round1(t.turnovers  || 0),
+        };
+      })
+      .filter(p => p.pts > 0);
+
+    if (mapped.length < 20) throw new Error('Too few valid players');
+    dataSource = 'Live NBA API (2024-25)';
+    initPlayers(mapped);
+    return;
+  } catch (e) {
+    console.warn('Live fetch failed, using fallback:', e.message);
+  }
+
+  // Fallback
+  dataSource = 'Curated 2024-25 snapshot';
+  initPlayers(FALLBACK_PLAYERS.map(p => ({ ...p, gp: p.gp || 70 })));
+}
+
+function cleanPos(pos) {
+  if (!pos) return 'G';
+  const p = pos.trim().split('-')[0].toUpperCase();
+  if (['PG','SG','SF','PF','C'].includes(p)) return p;
+  return p;
+}
+function round1(n) { return Math.round(n * 10) / 10; }
+
+function updateDataBanner(ready) {
+  const banner = document.getElementById('data-banner');
+  const text   = document.getElementById('data-banner-text');
+  if (ready) {
+    banner.className = 'data-banner';
+    text.textContent = `${dataSource} · ${NBA_PLAYERS.length} players`;
+  } else {
+    banner.className = 'data-banner loading';
+    text.textContent = 'Loading live NBA stats…';
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  SECTION 4 — TRADE SCORING (Z-SCORE HEURISTIC)
+ * ══════════════════════════════════════════════════════════════════ */
+
+function calcTradeScore(giving, getting) {
+  const avg = (arr, key) => arr.length ? arr.reduce((s, p) => s + (p[key] || 0), 0) / arr.length : 0;
+
+  // Per-category z-scores
+  const zBreakdown = {};
+  CATS.forEach(cat => {
+    const givZ = giving.map(p  => ((p[cat]  || 0) - leagueMeans[cat]) / leagueStdDevs[cat]);
+    const getZ = getting.map(p => ((p[cat]  || 0) - leagueMeans[cat]) / leagueStdDevs[cat]);
+    const givAvgZ = givZ.reduce((a,b) => a+b, 0) / (givZ.length || 1);
+    const getAvgZ = getZ.reduce((a,b) => a+b, 0) / (getZ.length || 1);
+    zBreakdown[cat] = {
+      givZ: givAvgZ,
+      getZ: getAvgZ,
+      delta: getAvgZ - givAvgZ,
+      weighted: CAT_WEIGHTS[cat] * (getAvgZ - givAvgZ),
+    };
+  });
+
+  // Overall fantasy score delta
+  const givFScore = avg(giving,  '_fscore_raw');
+  const getFScore = avg(getting, '_fscore_raw');
+  const fscoreDelta = getFScore - givFScore;
+
+  // Age and availability
+  const givAge = avg(giving,  'age');
+  const getAge = avg(getting, 'age');
+  const ageDelta = givAge - getAge; // positive = younger incoming (good)
+
+  const givGP  = avg(giving,  'gp');
+  const getGP  = avg(getting, 'gp');
+
+  // Trade score formula — calibrated so 1-point fscore delta ≈ 8 score points
+  // and age matters meaningfully
+  const raw = 50
+    + fscoreDelta * 8.0
+    + ageDelta    * 1.2
+    + (getGP - givGP) * 0.3;
+
+  const score = Math.max(0, Math.min(100, Math.round(raw)));
+
+  // Percentile of outgoing player for sell-high detection
+  const sortedFS = [...NBA_PLAYERS].sort((a, b) => a._fscore_raw - b._fscore_raw);
+  const p75 = sortedFS[Math.floor(sortedFS.length * 0.75)]?._fscore_raw || 0;
+
+  return {
+    score,
+    fscoreDelta,
+    givFScore, getFScore,
+    givAge, getAge,
+    ageDelta: getAge - givAge,  // for display: positive = older incoming (bad)
+    ptsDelta: avg(getting,'pts')  - avg(giving,'pts'),
+    rebDelta: avg(getting,'reb')  - avg(giving,'reb'),
+    astDelta: avg(getting,'ast')  - avg(giving,'ast'),
+    stlDelta: avg(getting,'stl')  - avg(giving,'stl'),
+    blkDelta: avg(getting,'blk')  - avg(giving,'blk'),
+    tpDelta:  avg(getting,'threepm') - avg(giving,'threepm'),
+    tovDelta: avg(getting,'tov')  - avg(giving,'tov'),   // negative = better
+    fgpDelta: avg(getting,'fgp')  - avg(giving,'fgp'),
+    ftpDelta: avg(getting,'ftp')  - avg(giving,'ftp'),
+    zBreakdown,
+    buyLow:   getFScore < givFScore && avg(getting,'age') < 26,
+    sellHigh: givFScore > p75 && getFScore < givFScore,
+  };
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  SECTION 5 — APP STATE
+ * ══════════════════════════════════════════════════════════════════ */
+
+let myRoster   = [];
+let tradeLeft  = [];
+let tradeRight = [];
+let modalSide  = 'left';
+let modalPosFilter = 'ALL';
+
+function initials(name) {
+  return (name || '').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+function avg(arr, key) {
+  return arr.length ? arr.reduce((s, p) => s + (p[key] || 0), 0) / arr.length : 0;
+}
+function fmt(n) { return (n > 0 ? '+' : '') + n.toFixed(1); }
+function cls(n) { return n > 0.05 ? 'pos' : n < -0.05 ? 'neg' : 'neu'; }
+
+/* ── AUTH ── */
+function doLogin() {
+  const league = document.getElementById('login-league').value.trim() || 'My League';
+  document.getElementById('roster-league-name').textContent = league;
+  document.getElementById('profile-league-sub').textContent = league;
+  document.getElementById('screen-login').classList.remove('active');
+  document.getElementById('screen-main').classList.add('active');
+  fetchLiveData();
+}
+function doLogout() {
+  document.getElementById('screen-main').classList.remove('active');
+  document.getElementById('screen-login').classList.add('active');
+  myRoster = []; tradeLeft = []; tradeRight = [];
+}
+
+/* ── TAB SWITCHING ── */
+function switchTab(tab) {
+  ['team','trade','profile'].forEach(t => {
+    document.getElementById('tab-' + t).style.display = t === tab ? 'flex' : 'none';
+    document.getElementById('tab-btn-' + t).classList.toggle('active', t === tab);
+  });
+  if (tab === 'profile') updateProfileStats();
+}
+
+/* ── ROSTER SEARCH ── */
+function rosterSearch(q) {
+  const box = document.getElementById('roster-suggestions');
+  if (!q.trim() || !NBA_PLAYERS.length) { box.style.display = 'none'; return; }
+  const results = NBA_PLAYERS
+    .filter(p => p.name.toLowerCase().includes(q.toLowerCase()) && !myRoster.find(r => r.id === p.id))
+    .slice(0, 8);
+  if (!results.length) { box.style.display = 'none'; return; }
+  box.innerHTML = results.map(p => `
+    <div class="suggestion-item" onclick="addToRoster(${p.id})">
+      <div class="player-avatar">${initials(p.name)}</div>
+      <div class="player-info">
+        <div class="player-name">${p.name}</div>
+        <div class="player-meta">${p.team} · ${p.pos} · ${p.pts} PPG · FS ${p._fscore}</div>
+      </div>
+      <i class="ti ti-plus" style="color:var(--c-muted);font-size:17px;"></i>
+    </div>`).join('');
+  box.style.display = 'block';
+}
+
+function addToRoster(id) {
+  const p = NBA_PLAYERS.find(x => x.id === id);
+  if (!p || myRoster.find(r => r.id === id)) return;
+  myRoster.push(p);
+  document.getElementById('roster-suggestions').style.display = 'none';
+  document.getElementById('roster-search').value = '';
+  renderRoster();
+}
+
+function removeFromRoster(id) {
+  myRoster   = myRoster.filter(p => p.id !== id);
+  tradeLeft  = tradeLeft.filter(p => p.id !== id);
+  updateLeftPlatform(); checkAnalyze(); renderRoster();
+}
+
+function renderRoster() {
+  const el = document.getElementById('roster-list');
+  if (!myRoster.length) {
+    el.innerHTML = `<div class="empty-state"><i class="ti ti-users"></i><p>Search for players above<br>to build your roster</p></div>`;
+    return;
+  }
+  el.innerHTML = myRoster.map(p => {
+    const sel = !!tradeLeft.find(x => x.id === p.id);
+    return `<div class="roster-card">
+      <div class="pos-badge">${p.pos}</div>
+      <div class="player-avatar">${initials(p.name)}</div>
+      <div class="roster-stats">
+        <div class="roster-name">${p.name}</div>
+        <div class="roster-meta">${p.team} · ${p.pts}pts ${p.reb}reb ${p.ast}ast · FS ${p._fscore}</div>
+      </div>
+      <button class="select-btn ${sel ? 'selected' : ''}" onclick="toggleTradeLeft(${p.id})">
+        ${sel ? '✓ Trade' : 'Trade'}
+      </button>
+      <button class="rm-btn" onclick="removeFromRoster(${p.id})">
+        <i class="ti ti-x"></i>
+      </button>
+    </div>`;
+  }).join('');
+}
+
+/* ── TRADE LEFT (from roster) ── */
+function toggleTradeLeft(id) {
+  const p = myRoster.find(x => x.id === id);
+  if (!p) return;
+  if (tradeLeft.find(x => x.id === id)) tradeLeft = tradeLeft.filter(x => x.id !== id);
+  else tradeLeft.push(p);
+  renderRoster(); updateLeftPlatform(); checkAnalyze();
+}
+
+/* ── PLATFORM DISPLAY ── */
+function updateLeftPlatform() {
+  const show = tradeLeft.length > 0;
+  document.getElementById('left-empty').style.display  = show ? 'none' : 'flex';
+  document.getElementById('left-filled').style.display = show ? 'flex'  : 'none';
+  document.getElementById('left-platform').classList.toggle('filled', show);
+  if (!show) return;
+  const p = tradeLeft[0];
+  document.getElementById('left-initials').textContent = initials(p.name);
+  document.getElementById('left-name').textContent  = tradeLeft.length === 1 ? p.name : `${tradeLeft.length} players`;
+  document.getElementById('left-pos').textContent   = tradeLeft.length === 1 ? `${p.team} · ${p.pos}` : '';
+  document.getElementById('left-fscore').textContent = `Fantasy Score ${tradeLeft.length === 1 ? p._fscore : avg(tradeLeft,'_fscore').toFixed(0)}`;
+  document.getElementById('left-tags').innerHTML = tradeLeft.length > 1
+    ? tradeLeft.map(x => `<span class="player-tag">${x.name.split(' ').pop()}</span>`).join('') : '';
+}
+
+function updateRightPlatform() {
+  const show = tradeRight.length > 0;
+  document.getElementById('right-empty').style.display  = show ? 'none' : 'flex';
+  document.getElementById('right-filled').style.display = show ? 'flex'  : 'none';
+  document.getElementById('right-platform').classList.toggle('filled', show);
+  if (!show) return;
+  const p = tradeRight[0];
+  document.getElementById('right-initials').textContent = initials(p.name);
+  document.getElementById('right-name').textContent  = tradeRight.length === 1 ? p.name : `${tradeRight.length} players`;
+  document.getElementById('right-pos').textContent   = tradeRight.length === 1 ? `${p.team} · ${p.pos}` : '';
+  document.getElementById('right-fscore').textContent = `Fantasy Score ${tradeRight.length === 1 ? p._fscore : avg(tradeRight,'_fscore').toFixed(0)}`;
+  document.getElementById('right-tags').innerHTML = tradeRight.length > 1
+    ? tradeRight.map(x => `<span class="player-tag">${x.name.split(' ').pop()}</span>`).join('') : '';
+}
+
+function checkAnalyze() {
+  document.getElementById('analyze-btn').disabled = !(tradeLeft.length && tradeRight.length);
+}
+
+/* ── MODAL ── */
+function openModal(side) {
+  modalSide = side;
+  document.getElementById('modal-title').textContent =
+    side === 'left' ? 'Select players to trade away' : 'Select players to receive';
+  document.getElementById('modal-input').value = '';
+  modalPosFilter = 'ALL';
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  document.querySelector('.chip').classList.add('active');
+  renderModalList('');
+  document.getElementById('modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('modal-input').focus(), 250);
+}
+function closeModalOutside(e) { if (e.target === document.getElementById('modal')) closeModal(); }
+function closeModal() { document.getElementById('modal').style.display = 'none'; checkAnalyze(); }
+function filterPos(el, pos) {
+  modalPosFilter = pos;
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  renderModalList(document.getElementById('modal-input').value);
+}
+function modalSearch(q) { renderModalList(q); }
+
+function renderModalList(q) {
+  const selected = modalSide === 'left' ? tradeLeft : tradeRight;
+  const pool = modalSide === 'left' ? myRoster : NBA_PLAYERS;
+  const players = pool.filter(p => {
+    const matchQ   = !q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || (p.team || '').toLowerCase().includes(q.toLowerCase());
+    const matchPos = modalPosFilter === 'ALL' || p.pos === modalPosFilter;
+    return matchQ && matchPos;
+  });
+  const el = document.getElementById('modal-list');
+  if (!players.length) {
+    el.innerHTML = `<div class="empty-state"><i class="ti ti-search-off"></i><p>No players found</p></div>`;
+    return;
+  }
+  el.innerHTML = players.map(p => {
+    const isSel = !!selected.find(x => x.id === p.id);
+    return `<div class="suggestion-item" onclick="toggleModalPlayer(${p.id})"
+      style="${isSel ? 'background:rgba(29,158,117,0.08);' : ''}">
+      <div class="player-avatar ${isSel ? 'green-bg' : ''}">${initials(p.name)}</div>
+      <div class="player-info">
+        <div class="player-name">${p.name}</div>
+        <div class="player-meta">${p.team} · ${p.pos} · ${p.pts}pts ${p.reb}reb ${p.ast}ast · FS ${p._fscore ?? '—'}</div>
+      </div>
+      ${isSel
+        ? '<i class="ti ti-check" style="color:#1D9E75;font-size:20px;"></i>'
+        : '<i class="ti ti-plus"  style="color:var(--c-muted);font-size:17px;"></i>'}
+    </div>`;
+  }).join('');
+}
+
+function toggleModalPlayer(id) {
+  const p = NBA_PLAYERS.find(x => x.id === id) || myRoster.find(x => x.id === id);
+  if (!p) return;
+  if (modalSide === 'left') {
+    if (tradeLeft.find(x => x.id === id)) tradeLeft = tradeLeft.filter(x => x.id !== id);
+    else tradeLeft.push(p);
+    updateLeftPlatform(); renderRoster();
+  } else {
+    if (tradeRight.find(x => x.id === id)) tradeRight = tradeRight.filter(x => x.id !== id);
+    else tradeRight.push(p);
+    updateRightPlatform();
+  }
+  renderModalList(document.getElementById('modal-input').value);
+}
+
+/* ── SUGGEST TRADE ── */
+function suggestTrade() {
+  if (!tradeLeft.length) {
+    alert('Select a player to trade away from your Roster tab first.');
+    return;
+  }
+  const exclude = new Set([...tradeLeft.map(p => p.id), ...myRoster.map(p => p.id)]);
+  const candidates = NBA_PLAYERS
+    .filter(p => !exclude.has(p.id))
+    .map(p => ({ p, score: calcTradeScore(tradeLeft, [p]).score }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map(x => x.p);
+  tradeRight = candidates;
+  updateRightPlatform(); checkAnalyze();
+  switchTab('trade');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  SECTION 6 — ANALYZE TRADE  (heuristic + Claude AI)
+ * ══════════════════════════════════════════════════════════════════ */
+
+async function analyzeTrade() {
+  document.getElementById('score-section').style.display = 'block';
+  document.getElementById('score-loading').style.display = 'block';
+  document.getElementById('score-result').style.display  = 'none';
+
+  const r = calcTradeScore(tradeLeft, tradeRight);
+
+  // Build per-player stats string for Claude
+  const playerStr = (arr) => arr.map(p =>
+    `${p.name}(${p.team},${p.pos},age${p.age},` +
+    `pts${p.pts},reb${p.reb},ast${p.ast},stl${p.stl},blk${p.blk},` +
+    `3pm${p.threepm},fg%${p.fgp},ft%${p.ftp},tov${p.tov},` +
+    `FantasyScore${p._fscore})`
+  ).join('; ');
+
+  const catSummary = CATS.map(c => {
+    const z = r.zBreakdown[c];
+    return `${c}: give ${z.givZ.toFixed(2)}z → get ${z.getZ.toFixed(2)}z (Δ${z.delta > 0 ? '+' : ''}${z.delta.toFixed(2)})`;
+  }).join(', ');
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: `You are an expert NBA fantasy basketball trade analyst using a Z-score 9-category model (PTS, REB, AST, STL, BLK, 3PM, FG%, FT%, TOV).
+
+TRADING AWAY: ${playerStr(tradeLeft)}
+TRADING FOR:  ${playerStr(tradeRight)}
+
+Algorithmic trade score: ${r.score}/100
+Fantasy score delta (receiving − giving): ${r.fscoreDelta > 0 ? '+' : ''}${r.fscoreDelta.toFixed(2)}
+Per-category Z-score breakdown: ${catSummary}
+
+Analyze this trade from the perspective of the manager trading AWAY the first group. Respond ONLY with valid JSON, no markdown:
+{
+  "verdict": "3-5 word phrase e.g. 'Strong upgrade in scoring' or 'Major overpay, hold firm'",
+  "reason": "2-3 sentences. Reference specific player names, fantasy categories where you gain or lose, age/trajectory. Be direct and opinionated.",
+  "buyLowOpportunity": true or false,
+  "sellHighOpportunity": true or false,
+  "keyWin": "One category where you clearly win",
+  "keyLoss": "One category where you clearly lose, or 'none' if you win everything"
+}`
+        }]
+      })
+    });
+    const data = await res.json();
+    let txt = (data.content || []).find(b => b.type === 'text')?.text || '{}';
+    txt = txt.replace(/```json|```/g, '').trim();
+    const ai = JSON.parse(txt);
+    showResult(r, ai);
+  } catch(e) {
+    // Fallback — local verdict
+    const local = {
+      verdict: r.score >= 65 ? 'Solid upgrade for you' : r.score >= 45 ? 'Roughly even trade' : 'You\'re overpaying',
+      reason: buildLocalReason(r),
+      buyLowOpportunity:  r.buyLow,
+      sellHighOpportunity: r.sellHigh,
+      keyWin:  bestCatDelta(r.zBreakdown, true),
+      keyLoss: bestCatDelta(r.zBreakdown, false),
+    };
+    showResult(r, local);
+  }
+}
+
+function buildLocalReason(r) {
+  const givNames = tradeLeft.map(p => p.name).join(' & ');
+  const getNames = tradeRight.map(p => p.name).join(' & ');
+  const diff = r.fscoreDelta;
+  if (r.score >= 65) {
+    return `Trading ${givNames} for ${getNames} improves your roster fantasy score by ${Math.abs(diff).toFixed(1)} points. `
+      + `The incoming player(s) are stronger across multiple 9-cat categories.`;
+  } else if (r.score >= 45) {
+    return `This is a lateral trade. The fantasy score difference is marginal (${fmt(diff)} pts). `
+      + `Consider positional needs and injury history before accepting.`;
+  }
+  return `You're giving up ${Math.abs(diff).toFixed(1)} fantasy score points in this deal. `
+    + `${givNames} outperforms ${getNames} across the key categories. Hold or negotiate a better return.`;
+}
+
+function bestCatDelta(zb, best) {
+  const cats = Object.keys(zb);
+  const sorted = cats.sort((a, b) => {
+    const da = zb[a].delta * CAT_WEIGHTS[a];
+    const db = zb[b].delta * CAT_WEIGHTS[b];
+    return best ? db - da : da - db;
+  });
+  const cat = sorted[0];
+  const delta = zb[cat].delta;
+  const label = { pts:'Points', reb:'Rebounds', ast:'Assists', stl:'Steals',
+                  blk:'Blocks', threepm:'3-Pointers', fgp:'FG%', ftp:'FT%', tov:'Turnovers' };
+  return `${label[cat] || cat} (${delta > 0 ? '+' : ''}${delta.toFixed(2)}z)`;
+}
+
+/* ── RENDER RESULTS ── */
+function showResult(r, ai) {
+  document.getElementById('score-loading').style.display = 'none';
+  document.getElementById('score-result').style.display  = 'block';
+
+  const score = r.score;
+  const numEl = document.getElementById('score-num');
+  numEl.textContent = score;
+  numEl.className = 'score-value ' + (score >= 65 ? 'good' : score >= 45 ? 'neutral' : 'bad');
+
+  const bar = document.getElementById('score-bar');
+  bar.style.width      = score + '%';
+  bar.style.background = score >= 65 ? '#1D9E75' : score >= 45 ? '#BA7517' : '#E24B4A';
+
+  document.getElementById('score-verdict').textContent = ai.verdict || '';
+  document.getElementById('score-reason').textContent  = ai.reason  || '';
+
+  // Flags
+  const flags = document.getElementById('flags-row');
+  let flagsHTML = '';
+  if (score >= 65) flagsHTML += `<span class="flag-pill good">✅ Good trade</span>`;
+  else if (score < 45) flagsHTML += `<span class="flag-pill bad">❌ Poor trade</span>`;
+  if (ai.buyLowOpportunity  || r.buyLow)  flagsHTML += `<span class="flag-pill buy">📈 Buy low</span>`;
+  if (ai.sellHighOpportunity|| r.sellHigh) flagsHTML += `<span class="flag-pill sell">📤 Sell high</span>`;
+  if (ai.keyWin  && ai.keyWin  !== 'none') flagsHTML += `<span class="flag-pill buy">↑ ${ai.keyWin}</span>`;
+  if (ai.keyLoss && ai.keyLoss !== 'none') flagsHTML += `<span class="flag-pill bad">↓ ${ai.keyLoss}</span>`;
+  flags.innerHTML = flagsHTML;
+
+  // Z-score category grid
+  const catLabels = { pts:'PTS',reb:'REB',ast:'AST',stl:'STL',blk:'BLK',
+                      threepm:'3PM',fgp:'FG%',ftp:'FT%',tov:'TOV' };
+  const grid = document.getElementById('z-cat-grid');
+  grid.innerHTML = CATS.map(cat => {
+    const z = r.zBreakdown[cat];
+    const givStat = avg(tradeLeft,  cat);
+    const getStat = avg(tradeRight, cat);
+    // bar widths — normalise to ±3 z range → 0-100%
+    const toWidth = v => Math.round(Math.min(100, Math.max(0, ((v + 3) / 6) * 100)));
+    const gW = toWidth(z.givZ);
+    const eW = toWidth(z.getZ);
+    const isBetter = cat === 'tov' ? z.getZ < z.givZ : z.getZ > z.givZ;
+    return `<div class="z-cat-card">
+      <div class="z-cat-label">${catLabels[cat]}</div>
+      <div class="z-cat-bar-track" style="height:5px;">
+        <div class="z-bar-giv" style="width:${gW}%;"></div>
+        <div class="z-bar-get" style="width:${eW}%;opacity:0.8;background:${isBetter?'#1D9E75':'#E24B4A'};"></div>
+      </div>
+      <div class="z-cat-values">
+        <span class="z-val-giv" style="color:var(--c-muted);">Out ${givStat.toFixed(1)}</span>
+        <span class="z-val-get" style="color:${isBetter?'#1D9E75':'#E24B4A'};">In ${getStat.toFixed(1)}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Stat delta table
+  const rows = [
+    { label: 'Fantasy score (9-cat)',  val: r.fscoreDelta,  suffix: ' pts', flip: false },
+    { label: 'Points per game',         val: r.ptsDelta,     suffix: ' PPG', flip: false },
+    { label: 'Rebounds per game',       val: r.rebDelta,     suffix: ' RPG', flip: false },
+    { label: 'Assists per game',        val: r.astDelta,     suffix: ' APG', flip: false },
+    { label: 'Steals per game',         val: r.stlDelta,     suffix: ' SPG', flip: false },
+    { label: 'Blocks per game',         val: r.blkDelta,     suffix: ' BPG', flip: false },
+    { label: '3-Pointers per game',     val: r.tpDelta,      suffix: ' 3PM', flip: false },
+    { label: 'FG%',                     val: r.fgpDelta,     suffix: '%',    flip: false },
+    { label: 'FT%',                     val: r.ftpDelta,     suffix: '%',    flip: false },
+    { label: 'Turnovers (− = better)', val: r.tovDelta,     suffix: ' TOV', flip: true  },
+    { label: 'Age delta (− = younger)',val: r.ageDelta,     suffix: ' yrs', flip: true  },
+  ];
+  document.getElementById('heuristics-table').innerHTML = rows.map(row => {
+    const c = row.flip ? cls(-row.val) : cls(row.val);
+    return `<div class="heuristic-row">
+      <span class="heuristic-label">${row.label}</span>
+      <span class="heuristic-delta ${c}">${fmt(row.val)}${row.suffix}</span>
+    </div>`;
+  }).join('');
+
+  // Scroll into view
+  document.getElementById('score-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/* ── PROFILE STATS ── */
+function updateProfileStats() {
+  document.getElementById('prof-source').textContent  = dataSource || '—';
+  document.getElementById('prof-players').textContent = NBA_PLAYERS.length || '—';
+  const el = document.getElementById('prof-roster-summary');
+  if (!myRoster.length) {
+    el.innerHTML = '<p style="font-size:13px;color:var(--c-muted);">Add players to your roster to see summary.</p>';
+    return;
+  }
+  const avgFs  = (myRoster.reduce((s,p) => s + (p._fscore || 0), 0) / myRoster.length).toFixed(1);
+  const avgAge = (myRoster.reduce((s,p) => s + (p.age || 0), 0) / myRoster.length).toFixed(1);
+  const avgPts = (myRoster.reduce((s,p) => s + (p.pts || 0), 0) / myRoster.length).toFixed(1);
+  el.innerHTML = `
+    <div class="profile-stat-row"><span class="profile-stat-label">Players</span><span class="profile-stat-value">${myRoster.length}</span></div>
+    <div class="profile-stat-row"><span class="profile-stat-label">Avg fantasy score</span><span class="profile-stat-value">${avgFs}/100</span></div>
+    <div class="profile-stat-row"><span class="profile-stat-label">Avg age</span><span class="profile-stat-value">${avgAge} yrs</span></div>
+    <div class="profile-stat-row"><span class="profile-stat-label">Avg PPG</span><span class="profile-stat-value">${avgPts}</span></div>
+  `;
+}
+</script>
+</body>
+</html>

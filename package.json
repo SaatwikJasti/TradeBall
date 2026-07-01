@@ -1,0 +1,13 @@
+{
+  "name": "traderank-app",
+  "version": "1.0.0",
+  "description": "TradeRank - NBA Fantasy Trade Analyzer",
+  "scripts": {
+    "sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1"
+  }
+}
