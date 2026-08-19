@@ -1,0 +1,13 @@
+package com.tradeball.exception;
+
+public enum ApiErrorCode {
+    VALIDATION_ERROR,
+    AUTHENTICATION_ERROR,
+    AUTHORIZATION_ERROR,
+    NOT_FOUND,
+    CONFLICT,
+    EXTERNAL_API_ERROR,
+    DATABASE_ERROR,
+    BAD_REQUEST,
+    INTERNAL_ERROR
+}

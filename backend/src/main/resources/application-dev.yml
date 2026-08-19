@@ -1,0 +1,9 @@
+tradeball:
+  nba:
+    use-dev-fallback: true
+  jwt:
+    secret: dev-only-secret-key-change-in-production-must-be-long-enough-256bits
+
+logging:
+  level:
+    com.tradeball: DEBUG

@@ -1,0 +1,45 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:tradeball;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  cache:
+    type: caffeine
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+tradeball:
+  jwt:
+    secret: test-secret-key-that-is-long-enough-for-hs256-signing-algorithms
+    expiration-ms: 3600000
+  nba:
+    use-dev-fallback: true
+    base-url: http://localhost:9
+    season: 2025
+    connect-timeout-ms: 1000
+    read-timeout-ms: 1000
+    max-retries: 0
+  fantasy:
+    model-version: heuristic-v1-test
+  cors:
+    allowed-origins: http://localhost
+
+logging:
+  level:
+    com.tradeball: WARN
+    org.flywaydb: WARN

@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: tradeball
+      POSTGRES_USER: tradeball
+      POSTGRES_PASSWORD: tradeball
+    ports:
+      - "5432:5432"
+    volumes:
+      - tradeball_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tradeball -d tradeball"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # This compose file is a local demo environment. Production uses only the docker profile.
+      SPRING_PROFILES_ACTIVE: docker,dev
+      DATABASE_URL: jdbc:postgresql://postgres:5432/tradeball
+      DATABASE_USERNAME: tradeball
+      DATABASE_PASSWORD: tradeball
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: docker-compose-dev-secret-change-me-to-a-long-random-value-256bits
+      NBA_API_USE_DEV_FALLBACK: "true"
+      NBA_API_SEASON: "2026"
+      NBA_API_BASE_URL: https://api.server.nbaapi.com
+      CORS_ALLOWED_ORIGINS: http://localhost,http://127.0.0.1,http://localhost:5500,http://127.0.0.1:5500,http://localhost:8000,http://127.0.0.1:8000,capacitor://localhost
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  tradeball_pg:

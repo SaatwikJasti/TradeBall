@@ -1,0 +1,137 @@
+spring:
+  application:
+    name: tradeball-backend
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/tradeball}
+    username: ${DATABASE_USERNAME:tradeball}
+    password: ${DATABASE_PASSWORD:tradeball}
+    hikari:
+      pool-name: tradeball-hikari
+      maximum-pool-size: ${DATABASE_MAX_POOL_SIZE:10}
+      connection-timeout: ${DATABASE_CONNECTION_TIMEOUT_MS:30000}
+      idle-timeout: ${DATABASE_IDLE_TIMEOUT_MS:600000}
+      max-lifetime: ${DATABASE_MAX_LIFETIME_MS:1800000}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+  cache:
+    type: ${CACHE_TYPE:caffeine}
+    caffeine:
+      spec: maximumSize=5000,expireAfterWrite=10m
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when_authorized
+  info:
+    env:
+      enabled: true
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+
+tradeball:
+  jwt:
+    secret: ${JWT_SECRET:}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5500,http://127.0.0.1:5500,capacitor://localhost,http://localhost}
+  nba:
+    base-url: ${NBA_API_BASE_URL:https://api.server.nbaapi.com}
+    season: ${NBA_API_SEASON:2026}
+    connect-timeout-ms: ${NBA_API_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${NBA_API_READ_TIMEOUT_MS:15000}
+    max-retries: ${NBA_API_MAX_RETRIES:2}
+    # Development data is opt-in through the dev profile; production must use a provider.
+    use-dev-fallback: ${NBA_API_USE_DEV_FALLBACK:false}
+  fantasy:
+    model-version: heuristic-v2
+    weights:
+      PTS: 1.00
+      REB: 0.85
+      AST: 0.90
+      STL: 1.20
+      BLK: 1.10
+      THREE_PM: 0.80
+      FG_PCT: 0.70
+      FT_PCT: 0.50
+      TO: -1.00
+    trade:
+      base-score: 50
+      fantasy-delta-weight: 8.0
+      age-delta-weight: 1.2
+      games-played-delta-weight: 0.3
+      great-threshold: 65
+      fair-threshold: 45
+      buy-low-max-age: 26
+      sell-high-percentile: 0.75
+  cache:
+    player-ttl-seconds: 600
+    search-ttl-seconds: 300
+    fantasy-ttl-seconds: 600
+
+logging:
+  level:
+    root: INFO
+    com.tradeball: INFO
+  pattern:
+    console: "%d{ISO8601} [%thread] [%X{requestId}] %-5level %logger{36} - %msg%n"
+
+info:
+  app:
+    name: TradeBall Backend
+    description: Fantasy basketball trade analysis API
+    version: 1.0.0
+
+---
+# Non-docker profiles: do not require Redis at startup
+spring:
+  config:
+    activate:
+      on-profile: "!docker"
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  cache:
+    type: redis
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}

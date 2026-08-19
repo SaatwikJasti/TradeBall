@@ -127,7 +127,8 @@ Processes evaluation results to generate trade recommendations, category breakdo
 |----------|--------------|
 | Languages | Java, JavaScript, HTML, CSS |
 | Mobile Development | Android Studio, Capacitor |
-| APIs | NBA REST APIs |
+| Backend | Spring Boot 3, PostgreSQL, Redis, Flyway, JWT |
+| APIs | TradeBall REST API, NBA REST integrations |
 | Version Control | Git, GitHub |
 
 ---
@@ -138,13 +139,43 @@ Processes evaluation results to generate trade recommendations, category breakdo
 TradeBall/
 │
 ├── android/                 Android application
-├── www/                     Web frontend
+├── www/                     Web frontend (Capacitor webDir)
+│   └── js/tradeball-api.js  Backend API client
+├── backend/                 Spring Boot API (Java 21)
+│   ├── src/
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   └── README.md
 ├── images/                  README assets
 ├── package.json
 ├── capacitor.config.json
 └── README.md
 ```
 
+---
+
+# Backend
+
+The authoritative fantasy evaluation, trade analysis, roster persistence, and NBA data sync layer lives in `backend/`.
+
+```bash
+cd backend
+docker compose up --build
+```
+
+- API base: `http://localhost:8080/api/v1`
+- Swagger UI: `http://localhost:8080/swagger-ui.html`
+- Health: `http://localhost:8080/actuator/health`
+
+See [`backend/README.md`](backend/README.md) for auth, endpoints, testing, and configuration.
+
+Local web frontend (after the API is running):
+
+```bash
+python -m http.server 5500 --directory www
+```
+
+Open `http://localhost:5500`. The client talks to `http://localhost:8080/api/v1` and stores the JWT in `localStorage`.
 ---
 
 # Installation

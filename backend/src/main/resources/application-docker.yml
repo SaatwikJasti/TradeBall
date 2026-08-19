@@ -1,0 +1,17 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://postgres:5432/tradeball}
+    username: ${DATABASE_USERNAME:tradeball}
+    password: ${DATABASE_PASSWORD:tradeball}
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+  cache:
+    type: redis
+
+tradeball:
+  nba:
+    use-dev-fallback: ${NBA_API_USE_DEV_FALLBACK:false}
+  jwt:
+    secret: ${JWT_SECRET}
