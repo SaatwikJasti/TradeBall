@@ -65,12 +65,12 @@ tradeball:
     secret: ${JWT_SECRET:}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5500,http://127.0.0.1:5500,capacitor://localhost,http://localhost}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5500,http://127.0.0.1:5500,http://127.0.0.1:5501,http://localhost:5501,capacitor://localhost,http://localhost}
   nba:
     base-url: ${NBA_API_BASE_URL:https://api.server.nbaapi.com}
     season: ${NBA_API_SEASON:2026}
     connect-timeout-ms: ${NBA_API_CONNECT_TIMEOUT_MS:5000}
-    read-timeout-ms: ${NBA_API_READ_TIMEOUT_MS:15000}
+    read-timeout-ms: ${NBA_API_READ_TIMEOUT_MS:30000}
     max-retries: ${NBA_API_MAX_RETRIES:2}
     # Development data is opt-in through the dev profile; production must use a provider.
     use-dev-fallback: ${NBA_API_USE_DEV_FALLBACK:false}

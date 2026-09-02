@@ -21,7 +21,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
+/**
+ * Synchronizes NBA players/stats into PostgreSQL.
+ * External HTTP calls deliberately run outside DB transactions so Supabase/Render
+ * connections are not held open during multi-page provider fetches.
+ */
 @Service
 public class NbaDataSyncService {
 
@@ -33,77 +39,79 @@ public class NbaDataSyncService {
     private final DataSyncJobRepository dataSyncJobRepository;
     private final NbaApiProperties nbaApiProperties;
     private final CacheManager cacheManager;
+    private final TransactionTemplate transactionTemplate;
 
     public NbaDataSyncService(NbaStatsClient nbaStatsClient,
                               PlayerRepository playerRepository,
                               PlayerStatsRepository playerStatsRepository,
                               DataSyncJobRepository dataSyncJobRepository,
                               NbaApiProperties nbaApiProperties,
-                              CacheManager cacheManager) {
+                              CacheManager cacheManager,
+                              TransactionTemplate transactionTemplate) {
         this.nbaStatsClient = nbaStatsClient;
         this.playerRepository = playerRepository;
         this.playerStatsRepository = playerStatsRepository;
         this.dataSyncJobRepository = dataSyncJobRepository;
         this.nbaApiProperties = nbaApiProperties;
         this.cacheManager = cacheManager;
+        this.transactionTemplate = transactionTemplate;
     }
 
-    @Transactional
     public SyncJobResponse syncPlayers() {
-        DataSyncJobEntity job = startJob(SyncJobType.PLAYERS);
+        int season = nbaApiProperties.season();
+        Long jobId = startJob(SyncJobType.PLAYERS);
         int processed = 0;
         int failed = 0;
         List<String> errors = new ArrayList<>();
         try {
-            List<ExternalPlayerData> external = nbaStatsClient.fetchPlayers(nbaApiProperties.season());
-            for (ExternalPlayerData data : external) {
-                try {
-                    upsertPlayer(data);
-                    processed++;
-                } catch (Exception ex) {
-                    failed++;
-                    errors.add(data.externalId() + ": " + ex.getMessage());
-                    log.warn("Player upsert failed externalId={}", data.externalId(), ex);
-                }
-            }
-            completeJob(job, processed, failed, errors);
+            log.info("Starting player sync season={} jobId={}", season, jobId);
+            List<ExternalPlayerData> external = nbaStatsClient.fetchPlayers(season);
+            log.info("Fetched {} external players for season {}", external.size(), season);
+
+            SyncCounts counts = transactionTemplate.execute(status -> upsertPlayers(external));
+            processed = counts == null ? 0 : counts.processed();
+            failed = counts == null ? 0 : counts.failed();
+            errors.addAll(counts == null ? List.of() : counts.errors());
+
+            SyncJobResponse response = completeJob(jobId, processed, failed, errors);
             evictPlayerCaches();
+            return response;
         } catch (Exception ex) {
-            failJob(job, processed, failed, ex.getMessage());
-            log.error("Player sync failed", ex);
+            log.error("Player sync failed jobId={} season={}", jobId, season, ex);
+            return failJob(jobId, processed, failed, safeMessage(ex));
         }
-        return toResponse(job);
     }
 
-    @Transactional
     public SyncJobResponse syncStats() {
-        DataSyncJobEntity job = startJob(SyncJobType.STATS);
+        int season = nbaApiProperties.season();
+        Long jobId = startJob(SyncJobType.STATS);
         int processed = 0;
         int failed = 0;
         List<String> errors = new ArrayList<>();
         try {
-            // Ensure players exist first (idempotent)
-            for (ExternalPlayerData player : nbaStatsClient.fetchPlayers(nbaApiProperties.season())) {
-                upsertPlayer(player);
-            }
-            List<ExternalPlayerStatsData> external = nbaStatsClient.fetchPlayerStats(nbaApiProperties.season());
-            for (ExternalPlayerStatsData data : external) {
-                try {
-                    upsertStats(data);
-                    processed++;
-                } catch (Exception ex) {
-                    failed++;
-                    errors.add(data.externalId() + ": " + ex.getMessage());
-                    log.warn("Stats upsert failed externalId={}", data.externalId(), ex);
+            log.info("Starting stats sync season={} jobId={}", season, jobId);
+            List<ExternalPlayerData> players = nbaStatsClient.fetchPlayers(season);
+            List<ExternalPlayerStatsData> stats = nbaStatsClient.fetchPlayerStats(season);
+            log.info("Fetched {} players and {} stat rows for season {}", players.size(), stats.size(), season);
+
+            transactionTemplate.executeWithoutResult(status -> {
+                for (ExternalPlayerData player : players) {
+                    upsertPlayer(player);
                 }
-            }
-            completeJob(job, processed, failed, errors);
+            });
+
+            SyncCounts counts = transactionTemplate.execute(status -> upsertStats(stats));
+            processed = counts == null ? 0 : counts.processed();
+            failed = counts == null ? 0 : counts.failed();
+            errors.addAll(counts == null ? List.of() : counts.errors());
+
+            SyncJobResponse response = completeJob(jobId, processed, failed, errors);
             evictPlayerCaches();
+            return response;
         } catch (Exception ex) {
-            failJob(job, processed, failed, ex.getMessage());
-            log.error("Stats sync failed", ex);
+            log.error("Stats sync failed jobId={} season={}", jobId, season, ex);
+            return failJob(jobId, processed, failed, safeMessage(ex));
         }
-        return toResponse(job);
     }
 
     @Transactional(readOnly = true)
@@ -111,6 +119,40 @@ public class NbaDataSyncService {
         return dataSyncJobRepository.findTop20ByOrderByStartedAtDesc().stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    private SyncCounts upsertPlayers(List<ExternalPlayerData> external) {
+        int processed = 0;
+        int failed = 0;
+        List<String> errors = new ArrayList<>();
+        for (ExternalPlayerData data : external) {
+            try {
+                upsertPlayer(data);
+                processed++;
+            } catch (Exception ex) {
+                failed++;
+                errors.add(data.externalId() + ": " + ex.getMessage());
+                log.warn("Player upsert failed externalId={}", data.externalId(), ex);
+            }
+        }
+        return new SyncCounts(processed, failed, errors);
+    }
+
+    private SyncCounts upsertStats(List<ExternalPlayerStatsData> external) {
+        int processed = 0;
+        int failed = 0;
+        List<String> errors = new ArrayList<>();
+        for (ExternalPlayerStatsData data : external) {
+            try {
+                upsertStatRow(data);
+                processed++;
+            } catch (Exception ex) {
+                failed++;
+                errors.add(data.externalId() + ": " + ex.getMessage());
+                log.warn("Stats upsert failed externalId={}", data.externalId(), ex);
+            }
+        }
+        return new SyncCounts(processed, failed, errors);
     }
 
     private void upsertPlayer(ExternalPlayerData data) {
@@ -131,7 +173,7 @@ public class NbaDataSyncService {
         playerRepository.save(player);
     }
 
-    private void upsertStats(ExternalPlayerStatsData data) {
+    private void upsertStatRow(ExternalPlayerStatsData data) {
         PlayerEntity player = playerRepository.findByExternalId(data.externalId())
                 .orElseThrow(() -> new IllegalArgumentException("Unknown player " + data.externalId()));
         PlayerStatsEntity stats = playerStatsRepository
@@ -152,39 +194,55 @@ public class NbaDataSyncService {
         playerStatsRepository.save(stats);
     }
 
-    private DataSyncJobEntity startJob(SyncJobType type) {
-        DataSyncJobEntity job = new DataSyncJobEntity();
-        job.setType(type);
-        job.setStatus(SyncJobStatus.RUNNING);
-        job.setStartedAt(Instant.now());
-        return dataSyncJobRepository.save(job);
+    private Long startJob(SyncJobType type) {
+        return transactionTemplate.execute(status -> {
+            DataSyncJobEntity job = new DataSyncJobEntity();
+            job.setType(type);
+            job.setStatus(SyncJobStatus.RUNNING);
+            job.setStartedAt(Instant.now());
+            return dataSyncJobRepository.save(job).getId();
+        });
     }
 
-    private void completeJob(DataSyncJobEntity job, int processed, int failed, List<String> errors) {
-        job.setRecordsProcessed(processed);
-        job.setRecordsFailed(failed);
-        job.setCompletedAt(Instant.now());
-        if (failed == 0) {
-            job.setStatus(SyncJobStatus.SUCCEEDED);
-        } else if (processed > 0) {
-            job.setStatus(SyncJobStatus.PARTIAL);
-            job.setErrorMessage(String.join("; ", errors.stream().limit(5).toList()));
-        } else {
+    private SyncJobResponse completeJob(Long jobId, int processed, int failed, List<String> errors) {
+        return transactionTemplate.execute(status -> {
+            DataSyncJobEntity job = dataSyncJobRepository.findById(jobId)
+                    .orElseThrow(() -> new IllegalStateException("Missing sync job " + jobId));
+            job.setRecordsProcessed(processed);
+            job.setRecordsFailed(failed);
+            job.setCompletedAt(Instant.now());
+            if (processed == 0 && failed == 0) {
+                job.setStatus(SyncJobStatus.FAILED);
+                job.setErrorMessage("No player records returned from NBA provider for season "
+                        + nbaApiProperties.season());
+            } else if (failed == 0) {
+                job.setStatus(SyncJobStatus.SUCCEEDED);
+                job.setErrorMessage(null);
+            } else if (processed > 0) {
+                job.setStatus(SyncJobStatus.PARTIAL);
+                job.setErrorMessage(String.join("; ", errors.stream().limit(5).toList()));
+            } else {
+                job.setStatus(SyncJobStatus.FAILED);
+                job.setErrorMessage(String.join("; ", errors.stream().limit(5).toList()));
+            }
+            DataSyncJobEntity saved = dataSyncJobRepository.save(job);
+            log.info("Sync job completed id={} type={} status={} processed={} failed={}",
+                    saved.getId(), saved.getType(), saved.getStatus(), processed, failed);
+            return toResponse(saved);
+        });
+    }
+
+    private SyncJobResponse failJob(Long jobId, int processed, int failed, String message) {
+        return transactionTemplate.execute(status -> {
+            DataSyncJobEntity job = dataSyncJobRepository.findById(jobId)
+                    .orElseThrow(() -> new IllegalStateException("Missing sync job " + jobId));
+            job.setRecordsProcessed(processed);
+            job.setRecordsFailed(failed);
+            job.setCompletedAt(Instant.now());
             job.setStatus(SyncJobStatus.FAILED);
-            job.setErrorMessage(String.join("; ", errors.stream().limit(5).toList()));
-        }
-        dataSyncJobRepository.save(job);
-        log.info("Sync job completed id={} type={} status={} processed={} failed={}",
-                job.getId(), job.getType(), job.getStatus(), processed, failed);
-    }
-
-    private void failJob(DataSyncJobEntity job, int processed, int failed, String message) {
-        job.setRecordsProcessed(processed);
-        job.setRecordsFailed(failed);
-        job.setCompletedAt(Instant.now());
-        job.setStatus(SyncJobStatus.FAILED);
-        job.setErrorMessage(message);
-        dataSyncJobRepository.save(job);
+            job.setErrorMessage(message);
+            return toResponse(dataSyncJobRepository.save(job));
+        });
     }
 
     private void evictPlayerCaches() {
@@ -215,5 +273,13 @@ public class NbaDataSyncService {
 
     private static double nz(Double value) {
         return value == null ? 0.0 : value;
+    }
+
+    private static String safeMessage(Exception ex) {
+        String message = ex.getMessage();
+        return message == null || message.isBlank() ? ex.getClass().getSimpleName() : message;
+    }
+
+    private record SyncCounts(int processed, int failed, List<String> errors) {
     }
 }

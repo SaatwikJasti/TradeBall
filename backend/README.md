@@ -151,6 +151,35 @@ External calls are isolated behind `NbaStatsClient`.
 - `tradeball.nba.use-dev-fallback=true`: **DEVELOPMENT-ONLY** curated snapshot matching the frontend fallback data. It is set only by `application-dev.yml` or the local compose environment. Live NBA stats are still tried first.
 - `false` (the production default): live HTTP client against `tradeball.nba.base-url`.
 
+Production does **not** auto-sync on startup (avoids long Render boots and duplicate jobs). After deploy, an ADMIN must run:
+
+```bash
+# 1) Login and capture accessToken
+curl -s -X POST https://tradeball-backend.onrender.com/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"YOUR_ADMIN_EMAIL","password":"YOUR_PASSWORD"}"
+
+# 2) Sync players (real NBA data into Supabase)
+curl -s -X POST https://tradeball-backend.onrender.com/api/v1/admin/sync/players \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+
+# 3) Sync stats
+curl -s -X POST https://tradeball-backend.onrender.com/api/v1/admin/sync/stats \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+
+# 4) Verify
+curl -s "https://tradeball-backend.onrender.com/api/v1/players/search?q=curry"
+```
+
+Required production env (non-secret defaults shown):
+
+```text
+NBA_API_BASE_URL=https://api.server.nbaapi.com
+NBA_API_SEASON=2026
+NBA_API_USE_DEV_FALLBACK=false
+NBA_API_READ_TIMEOUT_MS=30000
+```
+
 Trade evaluation sums 9-cat z-score production on each side. Averaging made 1-for-3 packages look even; that is no longer used. Dynatyze's proprietary Master Value / crowd model is not available as a public API, so TradeBall uses the standard 9-cat z-score total (Hashtag-style) against live per-game NBA stats.
 
 Never hard-code API keys. Configure via environment variables.

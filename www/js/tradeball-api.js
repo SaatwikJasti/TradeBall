@@ -1,12 +1,12 @@
 /**
  * TradeBall backend API client.
  * Configure base URL via window.TRADEBALL_API_BASE or localStorage key tradeball.apiBase.
- * Default: http://localhost:8080/api/v1  (Android emulator: http://10.0.2.2:8080/api/v1)
+ * Default: https://tradeball-backend.onrender.com/api/v1  (Android emulator: http://10.0.2.2:8080/api/v1)
  *
  * The backend is authoritative for persisted data and trade evaluation.
  */
 (function (global) {
-  const DEFAULT_BASE = "http://localhost:8080/api/v1";
+  const DEFAULT_BASE = "https://tradeball-backend.onrender.com/api/v1";
   const TOKEN_KEY = "tradeball.accessToken";
   const USER_KEY = "tradeball.user";
   const BASE_KEY = "tradeball.apiBase";
@@ -21,7 +21,7 @@
   }
 
   function baseUrl() {
-    const configured = global.TRADEBALL_API_BASE || global.localStorage?.getItem(BASE_KEY);
+    const configured = global.TRADEBALL_API_BASE;
     return (configured || defaultBase()).replace(/\/$/, "");
   }
 
@@ -172,6 +172,9 @@
       return request(`/trades?page=${page}&size=${size}`);
     },
     getTrade(id) { return request(`/trades/${id}`); },
+    syncStatus() { return request("/admin/sync/status"); },
+    syncPlayers() { return request("/admin/sync/players", { method: "POST" }); },
+    syncStats() { return request("/admin/sync/stats", { method: "POST" }); },
   };
 
   global.TradeBallApi = TradeBallApi;

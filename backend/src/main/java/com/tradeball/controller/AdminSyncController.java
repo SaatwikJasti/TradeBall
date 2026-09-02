@@ -1,10 +1,13 @@
 package com.tradeball.controller;
 
+import com.tradeball.domain.SyncJobStatus;
 import com.tradeball.dto.SyncJobResponse;
 import com.tradeball.service.NbaDataSyncService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,13 +32,20 @@ public class AdminSyncController {
 
     @PostMapping("/players")
     @Operation(summary = "Synchronize players from external NBA source")
-    public SyncJobResponse syncPlayers() {
-        return nbaDataSyncService.syncPlayers();
+    public ResponseEntity<SyncJobResponse> syncPlayers() {
+        return toResponse(nbaDataSyncService.syncPlayers());
     }
 
     @PostMapping("/stats")
     @Operation(summary = "Synchronize player statistics from external NBA source")
-    public SyncJobResponse syncStats() {
-        return nbaDataSyncService.syncStats();
+    public ResponseEntity<SyncJobResponse> syncStats() {
+        return toResponse(nbaDataSyncService.syncStats());
+    }
+
+    private static ResponseEntity<SyncJobResponse> toResponse(SyncJobResponse body) {
+        if (body.status() == SyncJobStatus.FAILED) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(body);
+        }
+        return ResponseEntity.ok(body);
     }
 }

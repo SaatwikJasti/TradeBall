@@ -26,8 +26,10 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class HttpNbaStatsClient {
 
     private static final Logger log = LoggerFactory.getLogger(HttpNbaStatsClient.class);
-    private static final int PAGE_SIZE = 100;
+    /** nbaapi.com currently caps pageSize at 50 regardless of larger requests. */
+    private static final int PAGE_SIZE = 50;
     private static final int MIN_GAMES = 10;
+    private static final int MAX_PAGES = 40;
 
     private final RestTemplate restTemplate;
     private final NbaApiProperties properties;
@@ -98,6 +100,9 @@ public class HttpNbaStatsClient {
             if (season == cachedSeason && !cachedRows.isEmpty()) {
                 return cachedRows;
             }
+            if (properties.baseUrl() == null || properties.baseUrl().isBlank()) {
+                throw new ExternalApiException("NBA API base URL is not configured");
+            }
             Map<String, JsonNode> byPlayer = new LinkedHashMap<>();
             int page = 1;
             int pages = 1;
@@ -107,6 +112,11 @@ public class HttpNbaStatsClient {
                 if (!data.isArray()) {
                     throw new ExternalApiException("Invalid NBA player totals response");
                 }
+                if (data.isEmpty() && page == 1) {
+                    throw new ExternalApiException(
+                            "NBA API returned no player totals for season " + season
+                                    + " — verify NBA_API_SEASON / tradeball.nba.season");
+                }
                 for (JsonNode node : data) {
                     if (node.path("isPlayoff").asBoolean(false)) {
                         continue;
@@ -115,7 +125,11 @@ public class HttpNbaStatsClient {
                     if (games < MIN_GAMES) {
                         continue;
                     }
-                    String key = externalId(node, text(node, "playerName"));
+                    String name = text(node, "playerName");
+                    if (name == null) {
+                        continue;
+                    }
+                    String key = externalId(node, name);
                     JsonNode existing = byPlayer.get(key);
                     if (existing == null || games > intVal(existing, "games", 0)) {
                         byPlayer.put(key, node);
@@ -123,11 +137,24 @@ public class HttpNbaStatsClient {
                 }
                 JsonNode pagination = body.path("pagination");
                 pages = pagination.path("pages").asInt(pagination.path("totalPages").asInt(page));
+                if (pages < 1) {
+                    pages = 1;
+                }
+                if (pages > MAX_PAGES) {
+                    log.warn("NBA API reported pages={} — capping pagination at {}", pages, MAX_PAGES);
+                    pages = MAX_PAGES;
+                }
                 page++;
             } while (page <= pages);
             cachedRows = List.copyOf(byPlayer.values());
             cachedSeason = season;
-            log.info("Loaded {} regular-season NBA player rows for season {}", cachedRows.size(), season);
+            if (cachedRows.size() < 10) {
+                throw new ExternalApiException(
+                        "NBA API returned only " + cachedRows.size()
+                                + " eligible players for season " + season);
+            }
+            log.info("Loaded {} regular-season NBA player rows for season {} (pages={})",
+                    cachedRows.size(), season, pages);
             return cachedRows;
         }
     }
@@ -137,7 +164,10 @@ public class HttpNbaStatsClient {
         RestClientException last = null;
         for (int i = 0; i < attempts; i++) {
             try {
-                String url = UriComponentsBuilder.fromHttpUrl(properties.baseUrl() + path)
+                String base = properties.baseUrl().endsWith("/")
+                        ? properties.baseUrl().substring(0, properties.baseUrl().length() - 1)
+                        : properties.baseUrl();
+                String url = UriComponentsBuilder.fromUriString(base + path)
                         .queryParam("page", page)
                         .queryParam("pageSize", PAGE_SIZE)
                         .queryParam("sortBy", sortBy)
@@ -145,6 +175,7 @@ public class HttpNbaStatsClient {
                         .queryParam("season", season)
                         .queryParam("isPlayoff", false)
                         .toUriString();
+                log.debug("NBA API GET {}", url);
                 ResponseEntity<JsonNode> response = restTemplate.getForEntity(url, JsonNode.class);
                 if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
                     throw new ExternalApiException("NBA API non-success status: " + response.getStatusCode());
@@ -152,10 +183,14 @@ public class HttpNbaStatsClient {
                 return response.getBody();
             } catch (RestClientException ex) {
                 last = ex;
-                log.warn("NBA API call failed attempt={} path={} page={} msg={}", i + 1, path, page, ex.getMessage());
+                log.warn("NBA API call failed attempt={} path={} page={} season={} msg={}",
+                        i + 1, path, page, season, ex.getMessage());
             }
         }
-        throw new ExternalApiException("NBA API unavailable after retries", last);
+        throw new ExternalApiException(
+                "NBA API unavailable after retries (baseUrl=" + properties.baseUrl()
+                        + ", season=" + season + ", page=" + page + ")",
+                last);
     }
 
     private static String externalId(JsonNode node, String name) {
