@@ -1,99 +1,117 @@
 # TradeBall
 
 <p align="center">
-  <strong>A full-stack fantasy basketball trade analysis platform powered by live NBA data and transparent heuristic scoring.</strong>
+  <strong>Full-stack NBA fantasy basketball trade analysis powered by live player data and transparent 9-category valuation.</strong>
 </p>
 
 <p align="center">
-
-![Java](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
-![Redis](https://img.shields.io/badge/Redis-DC382D?logo=redis&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
-![GitHub Actions](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-blue)
-
+  <img src="https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white" alt="Java 21" />
+  <img src="https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white" alt="Spring Boot" />
+  <img src="https://img.shields.io/badge/JavaScript-ES6+-F7DF1E?logo=javascript&logoColor=black" alt="JavaScript" />
+  <img src="https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL" />
+  <img src="https://img.shields.io/badge/Redis-DC382D?logo=redis&logoColor=white" alt="Redis" />
+  <img src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white" alt="Docker" />
+  <img src="https://img.shields.io/badge/GitHub%20Actions-CI-2088FF?logo=githubactions&logoColor=white" alt="GitHub Actions" />
+  <img src="https://img.shields.io/badge/License-MIT-blue" alt="MIT License" />
 </p>
+
+---
+
+## Demo
+
+<p align="center">
+  <img src="images/demo.gif" alt="TradeRank demo" width="900" />
+</p>
+
+> **TradeRank** is the user-facing application name; **TradeBall** is the repository and backend project name.
 
 ---
 
 ## Overview
 
-TradeBall is a full-stack fantasy basketball application that helps managers evaluate trades using live NBA statistics, historical player performance, and a transparent heuristic scoring system.
+TradeBall is a full-stack fantasy basketball platform built to answer a simple question:
 
-Instead of returning only a single trade score, TradeBall explains **why** a trade is favorable or unfavorable by analyzing player value across the standard nine-category fantasy basketball format.
+**Is this trade actually good for my team?**
 
-The application combines a responsive web frontend with a production-oriented Spring Boot backend responsible for authentication, roster persistence, player data, fantasy valuation, trade evaluation, trade history, caching, and NBA data synchronization.
+The application lets fantasy managers authenticate, manage their roster, search NBA players, build trades, and receive an explainable evaluation based on player performance across the standard nine-category fantasy basketball format.
+
+The project evolved from a locally hosted fantasy trade evaluator into a production-oriented client/server application. The frontend is responsible for the user experience and API integration, while the Spring Boot backend is the authoritative source for authentication, roster ownership, player data, fantasy valuation, trade scoring, and trade history.
 
 ---
 
 ## Features
 
-- Live NBA player statistics
-- NBA data synchronization
-- Development fallback for NBA data
-- Fantasy roster management
-- Player search and comparison
-- Trade evaluation
-- Category-by-category trade analysis
-- Fantasy player valuation
+### Fantasy & Trade Analysis
+
+- Live NBA player and statistical data
+- Player search and player detail views
+- Fantasy value calculations
+- 9-category trade evaluation
+- Category-by-category gains and losses
+- Overall trade fairness / value score
 - Human-readable trade recommendations
-- Trade history persistence
-- JWT authentication
+- Trade history
+- Roster-aware trade evaluation
+
+### Accounts & Rosters
+
+- User registration and login
+- JWT-based authentication
 - BCrypt password hashing
-- Server-side authorization
+- Authenticated roster management
+- Server-side ownership and authorization checks
+
+### Backend & Infrastructure
+
+- RESTful Spring Boot API
 - PostgreSQL persistence
 - Flyway database migrations
-- Redis caching
-- Local cache fallback
-- Swagger / OpenAPI documentation
-- Health monitoring through Spring Boot Actuator
-- Automated CI testing with GitHub Actions
+- Redis caching with Caffeine fallback
+- NBA data synchronization endpoints
+- OpenAPI / Swagger documentation
+- Spring Boot Actuator health endpoints
+- Docker-based development and deployment
+- Automated testing with JUnit, Mockito, H2, and Testcontainers
+- GitHub Actions CI
+
+### Client
+
+- Responsive HTML/CSS/JavaScript frontend
+- API-driven UI with no duplicated trade-scoring logic
+- Capacitor Android project for mobile packaging
+- Production frontend/backend separation
 
 ---
 
-## How TradeBall Works
+## How TradeBall Evaluates a Trade
 
-TradeBall evaluates players using a custom **Z-score-inspired heuristic model** across nine standard fantasy basketball categories:
+TradeBall uses a **Z-score-based fantasy valuation model** across nine standard categories:
 
-- Points
-- Rebounds
-- Assists
-- Steals
-- Blocks
-- Three-Point Field Goals
-- Field Goal Percentage
-- Free Throw Percentage
-- Turnovers
+| Category | Type |
+|---|---|
+| Points | Higher is better |
+| Rebounds | Higher is better |
+| Assists | Higher is better |
+| Steals | Higher is better |
+| Blocks | Higher is better |
+| Three-Pointers | Higher is better |
+| Field Goal % | Higher is better |
+| Free Throw % | Higher is better |
+| Turnovers | Lower is better |
 
-The evaluation engine:
-
-1. Analyzes player statistics.
-2. Calculates fantasy value across each category.
-3. Compares the players involved in a trade.
-4. Identifies category-level gains and losses.
-5. Calculates an overall trade score.
-6. Generates a contextual recommendation explaining the result.
-
-The backend is authoritative for fantasy valuation and trade scoring. The frontend renders the API results rather than independently recreating the scoring logic.
-
----
-
-# Architecture
+The evaluation pipeline is handled by the backend:
 
 ```text
-                         TradeBall
-                            │
-             ┌──────────────┴──────────────┐
-             │                             │
-       Web Frontend                  Spring Boot API
-          (www/)                         (backend/)
-             │                             │
-             │                    ┌────────┼────────┐
-             │                    │        │        │
-             │               PostgreSQL  Redis   NBA API
-             │                    │        │
-             │                  Flyway   Cache
-             │
-             └──────── REST API ───────────┘
+NBA Player Data
+      ↓
+Player Statistics
+      ↓
+9-Category Fantasy Valuation
+      ↓
+Incoming vs. Outgoing Players
+      ↓
+Category-Level Comparison
+      ↓
+Overall Trade Score
+      ↓
+Recommendation + Explanation
