@@ -27,15 +27,31 @@
 
 ---
 
+## Why I Built TradeBall
+
+Last year, I joined a fantasy basketball league with friends and quickly became known for one thing: **making terrible trades**.
+
+I was consistently near the bottom of the standings, and whenever a trade opportunity came up, I was basically guessing whether I was actually improving my team or making things worse.
+
+I wanted something that could help me make smarter decisions instead of relying on gut feeling. So I built **TradeBall**.
+
+TradeBall is a fantasy basketball trade analyzer that evaluates potential trades using the most up-to-date player statistics available. It compares players across the standard nine fantasy basketball categories and provides an overall evaluation of whether a trade improves my team.
+
+What started as a personal tool to **help me survive my fantasy league** evolved into a full-stack application with user authentication, roster management, live NBA data, persistent storage, caching, and a production backend.
+
+The goal is simple:
+
+> **Stop making terrible trades. Start making trades that actually help me win.**
+
+---
+
 ## Overview
 
-TradeBall is a full-stack fantasy basketball platform built to answer a simple question:
+TradeBall is a full-stack NBA fantasy basketball platform designed to help fantasy managers make more informed trade decisions.
 
-**Is this trade actually good for my team?**
+Users can authenticate, manage their roster, search NBA players, build potential trades, and receive an explainable evaluation based on player performance across the standard nine-category fantasy basketball format.
 
-The application lets fantasy managers authenticate, manage their roster, search NBA players, build trades, and receive an explainable evaluation based on player performance across the standard nine-category fantasy basketball format.
-
-The project evolved from a locally hosted fantasy trade evaluator into a production-oriented client/server application. The frontend is responsible for the user experience and API integration, while the Spring Boot backend is the authoritative source for authentication, roster ownership, player data, fantasy valuation, trade scoring, and trade history.
+The frontend provides the user experience, while the Spring Boot backend serves as the authoritative source for authentication, roster ownership, player data, fantasy valuation, trade scoring, and trade history.
 
 ---
 
@@ -115,3 +131,317 @@ Category-Level Comparison
 Overall Trade Score
       ↓
 Recommendation + Explanation
+```
+
+The frontend **does not independently calculate authoritative trade scores**. It sends the selected players to the backend and renders the returned analysis, keeping business logic centralized and consistent.
+
+---
+
+## Full-Stack Architecture
+
+```text
+                         ┌─────────────────────┐
+                         │     TradeRank UI    │
+                         │ HTML / CSS / JS     │
+                         │     + Capacitor     │
+                         └──────────┬──────────┘
+                                    │
+                              REST / JSON
+                                    │
+                                    ▼
+                    ┌────────────────────────────┐
+                    │     Spring Boot Backend     │
+                    │       Java 21 / REST API    │
+                    ├────────────────────────────┤
+                    │ Auth / JWT / Security       │
+                    │ Players / Stats             │
+                    │ Rosters / Ownership         │
+                    │ Fantasy Valuation           │
+                    │ Trade Evaluation            │
+                    │ Trade History               │
+                    │ NBA Synchronization         │
+                    └───────┬─────────┬──────────┘
+                            │         │
+                   ┌────────▼───┐ ┌──▼─────────┐
+                   │ PostgreSQL  │ │   Redis    │
+                   │ + Flyway    │ │   Cache    │
+                   └─────────────┘ └────────────┘
+                            │
+                            │
+                    ┌───────▼────────┐
+                    │    NBA Data    │
+                    │    Provider    │
+                    └────────────────┘
+```
+
+### Backend
+
+The backend is a production-oriented Spring Boot modular monolith. It exposes versioned REST endpoints under `/api/v1` and owns the application's core business logic.
+
+Key API areas include:
+
+```text
+POST /api/v1/auth/register
+POST /api/v1/auth/login
+GET  /api/v1/auth/me
+
+GET  /api/v1/players
+GET  /api/v1/players/search?q=
+GET  /api/v1/players/{id}
+GET  /api/v1/players/{id}/stats
+GET  /api/v1/players/{id}/fantasy-value
+
+CRUD  /api/v1/rosters...
+POST  /api/v1/trades/evaluate
+GET   /api/v1/trades
+
+POST  /api/v1/admin/sync/players
+POST  /api/v1/admin/sync/stats
+GET   /api/v1/admin/sync/status
+```
+
+### Database
+
+PostgreSQL stores persistent application state including users, rosters, players, statistics, fantasy values, and trade history.
+
+Flyway manages versioned schema migrations while Hibernate validates the production schema rather than generating it automatically.
+
+### Caching
+
+Redis is used for server-side caching of frequently accessed data.
+
+The backend can fall back to Caffeine for environments where Redis is unavailable, allowing local development without requiring the production cache infrastructure.
+
+### NBA Data
+
+NBA data access is isolated behind the backend's NBA client layer.
+
+Production uses the configured live HTTP provider, while development supports a curated fallback snapshot for deterministic local development and testing.
+
+---
+
+## Authentication Flow
+
+```text
+User
+ │
+ ├── Register / Login
+ │
+ ▼
+Spring Security
+ │
+ ├── BCrypt password verification
+ │
+ └── JWT access token
+          │
+          ▼
+Frontend stores token
+          │
+          ▼
+Authenticated API requests
+          │
+          ▼
+Backend validates JWT + resource ownership
+```
+
+Protected operations such as roster management and trade evaluation require a valid JWT.
+
+Authorization is enforced on the server rather than relying on frontend checks.
+
+---
+
+## Tech Stack
+
+| Layer | Technologies |
+|---|---|
+| Frontend | HTML5, CSS3, JavaScript |
+| Mobile | Capacitor, Android |
+| Backend | Java 21, Spring Boot 3.3 |
+| API | Spring Web, REST, JSON |
+| Security | Spring Security, JWT, BCrypt |
+| Database | PostgreSQL |
+| Migrations | Flyway |
+| Caching | Redis, Caffeine |
+| Documentation | OpenAPI / Swagger |
+| Testing | JUnit 5, Mockito, H2, Testcontainers |
+| Infrastructure | Docker, Docker Compose |
+| CI | GitHub Actions |
+| Deployment | Render + managed PostgreSQL / Redis |
+
+---
+
+## Project Structure
+
+```text
+TradeBall/
+├── backend/
+│   ├── src/
+│   │   ├── main/
+│   │   └── test/
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── pom.xml
+│   └── README.md
+│
+├── www/
+│   ├── index.html
+│   └── js/
+│       └── tradeball-api.js
+│
+├── android/
+├── images/
+├── .github/
+├── capacitor.config.json
+├── package.json
+└── README.md
+```
+
+---
+
+## Running Locally
+
+### Backend with Docker
+
+```bash
+cd backend
+docker compose up --build
+```
+
+The API will be available at:
+
+```text
+http://localhost:8080
+```
+
+Swagger UI:
+
+```text
+http://localhost:8080/swagger-ui.html
+```
+
+Health check:
+
+```text
+http://localhost:8080/actuator/health
+```
+
+### Backend without the application container
+
+Start the infrastructure:
+
+```bash
+cd backend
+docker compose up -d postgres redis
+```
+
+Configure the required environment variables, then run:
+
+```bash
+mvn spring-boot:run
+```
+
+### Frontend
+
+The frontend API base URL is configured through `www/js/tradeball-api.js` and defaults to the deployed TradeBall backend in production.
+
+The frontend is intentionally API-driven: player data, roster state, authentication, fantasy valuation, and trade analysis come from the backend.
+
+---
+
+## Testing
+
+The backend includes unit and API-level tests covering core fantasy and application behavior.
+
+```bash
+cd backend
+mvn clean test
+```
+
+Additional verification:
+
+```bash
+mvn verify
+mvn -DskipTests package
+```
+
+Tests cover areas including:
+
+- Fantasy Z-score calculations
+- Trade scoring
+- Buy-low / sell-high logic
+- Roster authorization
+- Authentication
+- Player endpoints
+- Roster endpoints
+- Trade endpoints
+- PostgreSQL-backed integration scenarios
+
+---
+
+## Production Deployment
+
+TradeBall is structured so the frontend and backend can be deployed independently.
+
+```text
+Frontend
+   │
+   ▼
+Cloud-hosted web client
+   │
+   │ HTTPS / REST
+   ▼
+Render — Spring Boot API
+   │
+   ├── Supabase PostgreSQL
+   │
+   └── Redis
+```
+
+Production configuration is supplied through environment variables rather than committed secrets.
+
+The production backend uses a unique JWT secret, an explicit CORS allow-list, managed PostgreSQL, managed Redis, and live NBA data configuration.
+
+The production NBA dataset is synchronized through protected admin endpoints rather than automatically performing a long-running synchronization during application startup.
+
+---
+
+## Design Principles
+
+### Backend as the Source of Truth
+
+All security-sensitive and business-critical logic lives on the server.
+
+The frontend is a client of the API rather than a second implementation of the trade engine.
+
+### Explainable Scoring
+
+Trade recommendations are backed by category-level statistics instead of an opaque single-number model.
+
+Managers can see which categories drive the evaluation.
+
+### Production-Oriented Infrastructure
+
+The project uses persistent PostgreSQL storage, migrations, caching, JWT security, containerization, health checks, automated tests, and CI rather than relying on local-only state.
+
+### Development / Production Separation
+
+Development fallback data and seeded development configuration are isolated from production behavior.
+
+Production requires explicit configuration for databases, authentication secrets, CORS, caching, and live NBA data.
+
+---
+
+## Future Improvements
+
+- More configurable league scoring settings
+- Additional player valuation models
+- More advanced trade recommendations
+- Expanded historical analytics
+- Additional fantasy league integrations
+- Deeper mobile-specific functionality
+
+---
+
+## License
+
+This project is licensed under the MIT License.
