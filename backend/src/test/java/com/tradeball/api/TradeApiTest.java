@@ -11,6 +11,7 @@ import com.tradeball.repository.PlayerRepository;
 import com.tradeball.repository.PlayerStatsRepository;
 import com.tradeball.repository.TradeEvaluationRepository;
 import com.tradeball.support.TestDataFactory;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -79,6 +80,22 @@ class TradeApiTest {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1));
+    }
+
+    @Test
+    void rejectsNullPlayerIdsWithoutPersistingTrade() throws Exception {
+        long historyCount = tradeEvaluationRepository.count();
+        for (String body : List.of(
+                "{\"incomingPlayerIds\":[null],\"outgoingPlayerIds\":[%d]}".formatted(roleId),
+                "{\"incomingPlayerIds\":[%d],\"outgoingPlayerIds\":[null]}".formatted(starId))) {
+            mockMvc.perform(post("/api/v1/trades/evaluate")
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value("VALIDATION_ERROR"));
+        }
+        org.junit.jupiter.api.Assertions.assertEquals(historyCount, tradeEvaluationRepository.count());
     }
 
     @Test
