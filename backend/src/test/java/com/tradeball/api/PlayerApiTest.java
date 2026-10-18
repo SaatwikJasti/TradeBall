@@ -11,6 +11,7 @@ import com.tradeball.support.TestDataFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.CacheManager;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -24,11 +25,13 @@ class PlayerApiTest {
     @Autowired MockMvc mockMvc;
     @Autowired PlayerRepository playerRepository;
     @Autowired PlayerStatsRepository playerStatsRepository;
+    @Autowired CacheManager cacheManager;
 
     private Long playerId;
 
     @BeforeEach
     void seed() {
+        cacheManager.getCacheNames().forEach(name -> cacheManager.getCache(name).clear());
         playerStatsRepository.deleteAll();
         playerRepository.deleteAll();
         PlayerEntity a = TestDataFactory.player(playerRepository, "jokic", "Nikola", "Jokic", "C", "DEN", 30);
@@ -36,6 +39,19 @@ class PlayerApiTest {
         TestDataFactory.stats(playerStatsRepository, a, 2025, 29.6, 12.7, 10.0, 79);
         TestDataFactory.stats(playerStatsRepository, b, 2025, 22.5, 3.9, 6.1, 66);
         playerId = a.getId();
+    }
+
+    @Test
+    void searchCacheRespectsSortDirection() throws Exception {
+        mockMvc.perform(get("/api/v1/players/search")
+                        .param("q", "").param("size", "1").param("sort", "lastName,asc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].lastName").value("Curry"));
+
+        mockMvc.perform(get("/api/v1/players/search")
+                        .param("q", "").param("size", "1").param("sort", "lastName,desc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].lastName").value("Jokic"));
     }
 
     @Test

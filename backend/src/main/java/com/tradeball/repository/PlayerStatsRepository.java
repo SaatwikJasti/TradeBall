@@ -10,6 +10,8 @@ import org.springframework.data.repository.query.Param;
 public interface PlayerStatsRepository extends JpaRepository<PlayerStatsEntity, Long> {
     Optional<PlayerStatsEntity> findByPlayerIdAndSeason(Long playerId, Integer season);
 
+    List<PlayerStatsEntity> findByPlayerIdInAndSeason(List<Long> playerIds, Integer season);
+
     List<PlayerStatsEntity> findByPlayerId(Long playerId);
 
     @Query("SELECT s FROM PlayerStatsEntity s JOIN FETCH s.player p WHERE s.season = :season AND p.active = true")

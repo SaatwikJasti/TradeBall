@@ -33,6 +33,7 @@ import com.tradeball.security.SecurityUtils;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -203,12 +204,23 @@ public class TradeEvaluationService {
     }
 
     private List<PlayerBundle> loadBundles(List<Long> ids) {
+        // Two reads per side instead of two per player. IN queries do not preserve
+        // request order, so rebuild bundles in input order for scores/explanations/history.
+        Map<Long, PlayerEntity> players = new HashMap<>();
+        playerRepository.findAllById(ids).forEach(player -> players.put(player.getId(), player));
+        Map<Long, PlayerStatsEntity> seasonStats = new HashMap<>();
+        playerStatsRepository.findByPlayerIdInAndSeason(ids, nbaApiProperties.season())
+                .forEach(stats -> seasonStats.put(stats.getPlayer().getId(), stats));
         List<PlayerBundle> bundles = new ArrayList<>();
         for (Long id : ids) {
-            PlayerEntity player = playerRepository.findById(id)
-                    .orElseThrow(() -> new ResourceNotFoundException("Player not found: " + id));
-            PlayerStatsEntity stats = playerStatsRepository.findByPlayerIdAndSeason(id, nbaApiProperties.season())
-                    .orElseThrow(() -> new ResourceNotFoundException("Stats not found for player: " + id));
+            PlayerEntity player = players.get(id);
+            if (player == null) {
+                throw new ResourceNotFoundException("Player not found: " + id);
+            }
+            PlayerStatsEntity stats = seasonStats.get(id);
+            if (stats == null) {
+                throw new ResourceNotFoundException("Stats not found for player: " + id);
+            }
             bundles.add(new PlayerBundle(player, stats, statsMapperHelper.toCategoryStatistics(stats)));
         }
         return bundles;

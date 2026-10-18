@@ -1,447 +1,213 @@
 # TradeBall
 
-<p align="center">
-  <strong>Full-stack NBA fantasy basketball trade analysis powered by live player data and transparent 9-category valuation.</strong>
-</p>
+TradeBall helps fantasy basketball managers compare outgoing and incoming players
+across nine categories. The Spring Boot backend owns player valuation, trade
+scoring, authentication, roster ownership, and saved trade history. **TradeRank**
+is the name shown in the client.
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white" alt="Java 21" />
-  <img src="https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white" alt="Spring Boot" />
-  <img src="https://img.shields.io/badge/JavaScript-ES6+-F7DF1E?logo=javascript&logoColor=black" alt="JavaScript" />
-  <img src="https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL" />
-  <img src="https://img.shields.io/badge/Redis-DC382D?logo=redis&logoColor=white" alt="Redis" />
-  <img src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white" alt="Docker" />
-  <img src="https://img.shields.io/badge/GitHub%20Actions-CI-2088FF?logo=githubactions&logoColor=white" alt="GitHub Actions" />
-  <img src="https://img.shields.io/badge/License-MIT-blue" alt="MIT License" />
-</p>
+The original JavaScript/Capacitor application remains in `www/`. A focused
+React + TypeScript comparison workflow builds alongside it into `www/compare/`.
+The October backend and React improvements have been **verified locally**; their
+remote CI execution and publication alongside an existing deployment are not
+verified. No new deployment or league adoption is claimed.
 
----
+## What the comparison workflow does
 
-## Demo
+- Sign in through the existing JWT API client, restore a session, and handle expiry.
+- Select a roster; create one and add players if the account is empty.
+- Search owned players for the outgoing side and backend player data for incoming.
+- Add/remove selections and prevent duplicate or cross-side player IDs.
+- Submit a roster-scoped trade; display the backend's actual score, explanation,
+  side valuations, and category deltas. The browser does not calculate substitute scores.
+- Show loading, empty, validation, network/API error, and expired-session states.
 
-<p align="center">
-  <img src="images/demo.gif" alt="TradeRank demo" width="900" />
-</p>
+The server independently enforces validation and resource ownership. Client-side
+checks improve usability; they are not authorization controls. Raw turnover
+deltas and the backend's reported impact are displayed separately because fewer
+turnovers can be better.
 
-> **TradeRank** is the user-facing application name; **TradeBall** is the repository and backend project name.
+## Screenshots
 
----
+These screenshots show local development-snapshot data and real backend results.
+Account names, roster names, credentials, and trade identifiers are outside the
+captured regions. Historical full-page screenshots remain private local evidence.
 
-## Why I Built TradeBall
+<img src="images/react-selection-public.jpg" alt="Outgoing and incoming player selection with duplicate prevention" width="900" />
+<img src="images/react-categories-public.jpg" alt="Nine category values and impacts returned by the local backend" width="900" />
 
-Last year, I joined a fantasy basketball league with friends and quickly became known for one thing: **making terrible trades**.
+## Stack and structure
 
-I was consistently near the bottom of the standings, and whenever a trade opportunity came up, I was basically guessing whether I was actually improving my team or making things worse.
-
-I wanted something that could help me make smarter decisions instead of relying on gut feeling. So I built **TradeBall**.
-
-TradeBall is a fantasy basketball trade analyzer that evaluates potential trades using the most up-to-date player statistics available. It compares players across the standard nine fantasy basketball categories and provides an overall evaluation of whether a trade improves my team.
-
-What started as a personal tool to **help me survive my fantasy league** evolved into a full-stack application with user authentication, roster management, live NBA data, persistent storage, caching, and a production backend.
-
-The goal is simple:
-
-> **Stop making terrible trades. Start making trades that actually help me win.**
-
----
-
-## Overview
-
-TradeBall is a full-stack NBA fantasy basketball platform designed to help fantasy managers make more informed trade decisions.
-
-Users can authenticate, manage their roster, search NBA players, build potential trades, and receive an explainable evaluation based on player performance across the standard nine-category fantasy basketball format.
-
-The frontend provides the user experience, while the Spring Boot backend serves as the authoritative source for authentication, roster ownership, player data, fantasy valuation, trade scoring, and trade history.
-
----
-
-## Features
-
-### Fantasy & Trade Analysis
-
-- Live NBA player and statistical data
-- Player search and player detail views
-- Fantasy value calculations
-- 9-category trade evaluation
-- Category-by-category gains and losses
-- Overall trade fairness / value score
-- Human-readable trade recommendations
-- Trade history
-- Roster-aware trade evaluation
-
-### Accounts & Rosters
-
-- User registration and login
-- JWT-based authentication
-- BCrypt password hashing
-- Authenticated roster management
-- Server-side ownership and authorization checks
-
-### Backend & Infrastructure
-
-- RESTful Spring Boot API
-- PostgreSQL persistence
-- Flyway database migrations
-- Redis caching with Caffeine fallback
-- NBA data synchronization endpoints
-- OpenAPI / Swagger documentation
-- Spring Boot Actuator health endpoints
-- Docker-based development and deployment
-- Automated testing with JUnit, Mockito, H2, and Testcontainers
-- GitHub Actions CI
-
-### Client
-
-- Responsive HTML/CSS/JavaScript frontend
-- API-driven UI with no duplicated trade-scoring logic
-- Capacitor Android project for mobile packaging
-- Production frontend/backend separation
-
----
-
-## How TradeBall Evaluates a Trade
-
-TradeBall uses a **Z-score-based fantasy valuation model** across nine standard categories:
-
-| Category | Type |
+| Area | Technologies |
 |---|---|
-| Points | Higher is better |
-| Rebounds | Higher is better |
-| Assists | Higher is better |
-| Steals | Higher is better |
-| Blocks | Higher is better |
-| Three-Pointers | Higher is better |
-| Field Goal % | Higher is better |
-| Free Throw % | Higher is better |
-| Turnovers | Lower is better |
-
-The evaluation pipeline is handled by the backend:
+| Comparison UI | React, TypeScript, Vite, CSS |
+| Original client | HTML/CSS/JavaScript; Capacitor Android project |
+| Backend | Java 21, Spring Boot 3.3, REST, Spring Data JPA |
+| Security | Spring Security, JWT, BCrypt, server-side ownership checks |
+| Data | PostgreSQL, Flyway; configurable Redis or Caffeine caching |
+| Tests | JUnit, Mockito, H2, Testcontainers; Vitest, React Testing Library |
+| Build and CI | Maven, npm, Docker/Compose, GitHub Actions CI |
 
 ```text
-NBA Player Data
-      ↓
-Player Statistics
-      ↓
-9-Category Fantasy Valuation
-      ↓
-Incoming vs. Outgoing Players
-      ↓
-Category-Level Comparison
-      ↓
-Overall Trade Score
-      ↓
-Recommendation + Explanation
+frontend/                 React components, types, tests, and Vite config
+www/index.html            Original app entry point
+www/js/                   Existing client and shared API client
+www/compare/              Generated React build; ignored by Git
+backend/src/              Spring Boot application and tests
+backend/docs/             Benchmark protocol and observed results
+backend/scripts/          Reproducible benchmark summarizer
+.github/workflows/        Backend and frontend CI definitions
 ```
 
-The frontend **does not independently calculate authoritative trade scores**. It sends the selected players to the backend and renders the returned analysis, keeping business logic centralized and consistent.
+Both clients use versioned `/api/v1` endpoints. Trade evaluation accepts incoming
+IDs, outgoing IDs, and roster scope. Player/stat loading uses batch reads and
+reconstructs request order. The weighted Z-score valuation engine covers points,
+rebounds, assists, steals, blocks, three-pointers, field-goal percentage,
+free-throw percentage, and turnovers. Population reads and history writes remain
+part of evaluation; query reduction does not make the whole request constant-cost.
 
----
+## Local setup
 
-## Full-Stack Architecture
+Verified prerequisites: Java 21, Maven, Node 24/npm, Docker Desktop's Linux engine,
+and Python for serving the static build. The following uses an isolated local
+PostgreSQL database on 15432 and API on 18080, avoiding an existing service on 5432.
 
-```text
-                         ┌─────────────────────┐
-                         │     TradeRank UI    │
-                         │ HTML / CSS / JS     │
-                         │     + Capacitor     │
-                         └──────────┬──────────┘
-                                    │
-                              REST / JSON
-                                    │
-                                    ▼
-                    ┌────────────────────────────┐
-                    │     Spring Boot Backend     │
-                    │       Java 21 / REST API    │
-                    ├────────────────────────────┤
-                    │ Auth / JWT / Security       │
-                    │ Players / Stats             │
-                    │ Rosters / Ownership         │
-                    │ Fantasy Valuation           │
-                    │ Trade Evaluation            │
-                    │ Trade History               │
-                    │ NBA Synchronization         │
-                    └───────┬─────────┬──────────┘
-                            │         │
-                   ┌────────▼───┐ ┌──▼─────────┐
-                   │ PostgreSQL  │ │   Redis    │
-                   │ + Flyway    │ │   Cache    │
-                   └─────────────┘ └────────────┘
-                            │
-                            │
-                    ┌───────▼────────┐
-                    │    NBA Data    │
-                    │    Provider    │
-                    └────────────────┘
+From the repository root:
+
+```powershell
+npm ci
+docker compose -p tradeball-react-local -f frontend/compose.local.yml up -d
 ```
 
-### Backend
+In a second terminal, start the backend:
 
-The backend is a production-oriented Spring Boot modular monolith. It exposes versioned REST endpoints under `/api/v1` and owns the application's core business logic.
-
-Key API areas include:
-
-```text
-POST /api/v1/auth/register
-POST /api/v1/auth/login
-GET  /api/v1/auth/me
-
-GET  /api/v1/players
-GET  /api/v1/players/search?q=
-GET  /api/v1/players/{id}
-GET  /api/v1/players/{id}/stats
-GET  /api/v1/players/{id}/fantasy-value
-
-CRUD  /api/v1/rosters...
-POST  /api/v1/trades/evaluate
-GET   /api/v1/trades
-
-POST  /api/v1/admin/sync/players
-POST  /api/v1/admin/sync/stats
-GET   /api/v1/admin/sync/status
+```powershell
+cd backend
+$env:SPRING_PROFILES_ACTIVE = 'dev'
+$env:DATABASE_URL = 'jdbc:postgresql://localhost:15432/tradeball_react'
+$env:DATABASE_USERNAME = 'tradeball'
+$env:DATABASE_PASSWORD = 'tradeball'
+$env:SERVER_PORT = '18080'
+$env:CORS_ALLOWED_ORIGINS = 'http://localhost:5500,http://127.0.0.1:5500,http://localhost:5173,http://127.0.0.1:5173,http://localhost,capacitor://localhost'
+$env:NBA_API_BASE_URL = 'http://127.0.0.1:9'
+$env:NBA_API_MAX_RETRIES = '0'
+$env:NBA_API_CONNECT_TIMEOUT_MS = '500'
+$env:NBA_API_READ_TIMEOUT_MS = '500'
+$env:JWT_EXPIRATION_MS = '86400000'
+mvn --batch-mode spring-boot:run
 ```
 
-### Database
+Wait for the development seed sync to finish. This intentionally uses the existing
+curated fallback after a fast local upstream connection failure: **40 players and
+season-2026 stats, not live NBA data**. Scoring and persistence still run through
+the actual backend and PostgreSQL. The development profile's seeded account is
+`demo@tradeball.local` / `Demo1234!`. These are public local-only fixture credentials.
+Never enable development seeding or reuse these credentials in a shared deployment.
 
-PostgreSQL stores persistent application state including users, rosters, players, statistics, fantasy values, and trade history.
+In another terminal at the repository root:
 
-Flyway manages versioned schema migrations while Hibernate validates the production schema rather than generating it automatically.
-
-### Caching
-
-Redis is used for server-side caching of frequently accessed data.
-
-The backend can fall back to Caffeine for environments where Redis is unavailable, allowing local development without requiring the production cache infrastructure.
-
-### NBA Data
-
-NBA data access is isolated behind the backend's NBA client layer.
-
-Production uses the configured live HTTP provider, while development supports a curated fallback snapshot for deterministic local development and testing.
-
----
-
-## Authentication Flow
-
-```text
-User
- │
- ├── Register / Login
- │
- ▼
-Spring Security
- │
- ├── BCrypt password verification
- │
- └── JWT access token
-          │
-          ▼
-Frontend stores token
-          │
-          ▼
-Authenticated API requests
-          │
-          ▼
-Backend validates JWT + resource ownership
+```powershell
+npm run dev
 ```
 
-Protected operations such as roster management and trade evaluation require a valid JWT.
+Open [the development comparison](http://127.0.0.1:5173/). Vite proxies `/api` to
+18080. The CORS origins above are required because the proxy forwards Origin.
 
-Authorization is enforced on the server rather than relying on frontend checks.
+To check the production bundle locally:
 
----
+```powershell
+npm run build
+python -m http.server 5500 --bind 127.0.0.1 --directory www
+```
 
-## Tech Stack
+Open [the built comparison](http://localhost:5500/compare/index.html) or
+[the original app](http://localhost:5500/index.html). The new comparison defaults
+to the local API on 18080. The original app keeps its existing API-base setting;
+its entire workflow was not reverified against this isolated database.
 
-| Layer | Technologies |
+For a different comparison backend, set `VITE_API_BASE` to the public API URL
+including `/api/v1` **before building**. This value is public and must not contain
+secrets. The legacy page's runtime base is configured separately. Do not publish
+the localhost default. See [the frontend guide](frontend/README.md) for component,
+state, API, Windows test-temp, and Capacitor details; see [the backend guide](backend/README.md)
+for its separate Docker development setup and production environment variables.
+
+## Testing and CI status
+
+From the repository root:
+
+```powershell
+npm run typecheck
+npm run test:frontend
+npm run build
+cd backend
+mvn --batch-mode verify
+```
+
+Latest completed local verification:
+
+| Check | Result |
 |---|---|
-| Frontend | HTML5, CSS3, JavaScript |
-| Mobile | Capacitor, Android |
-| Backend | Java 21, Spring Boot 3.3 |
-| API | Spring Web, REST, JSON |
-| Security | Spring Security, JWT, BCrypt |
-| Database | PostgreSQL |
-| Migrations | Flyway |
-| Caching | Redis, Caffeine |
-| Documentation | OpenAPI / Swagger |
-| Testing | JUnit 5, Mockito, H2, Testcontainers |
-| Infrastructure | Docker, Docker Compose |
-| CI | GitHub Actions |
-| Deployment | Render + managed PostgreSQL / Redis |
+| Frontend | 10 focused tests passed; strict TypeScript check and production build passed |
+| Surefire | 31 tests passed, no skips |
+| Failsafe | 4 PostgreSQL correctness tests passed; 1 opt-in benchmark method skipped |
+| Browser | Development and production bundles against local PostgreSQL; actual trade/history, validation, network failure, and real JWT expiry |
 
----
+Skipped PostgreSQL tests must never be counted as passes when Docker is unavailable.
+The benchmark was run separately for the completed performance experiment; it is
+not required on ordinary verification runs. No benchmark was rerun during publication preparation.
 
-## Project Structure
+GitHub Actions definitions exist for backend Maven verification and frontend
+`npm ci`, tests, and build/typecheck. The new jobs have not been verified on GitHub
+for these unpushed changes. This is **CI**, not verified CI/CD or deployment automation.
 
-```text
-TradeBall/
-├── backend/
-│   ├── src/
-│   │   ├── main/
-│   │   └── test/
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   ├── pom.xml
-│   └── README.md
-│
-├── www/
-│   ├── index.html
-│   └── js/
-│       └── tradeball-api.js
-│
-├── android/
-├── images/
-├── .github/
-├── capacitor.config.json
-├── package.json
-└── README.md
-```
+## Measured local performance
 
----
+The completed experiment used **local in-process authenticated API requests**
+through MockMvc to PostgreSQL, **concurrency 1**, **500 synthetic players and 1,000
+stat rows** (500 current-season and 500 off-season), and two fixture users.
+Each implementation had 600 measured requests: 200 each for 1-, 3-, and 10-player
+sides. Each scenario/round had 30 warmups; setup and history cleanup were outside
+timed requests. Application/L2 caches were disabled; database buffers were warm.
+Socket/network latency was excluded.
 
-## Running Locally
+| Trade size | SQL statements per request, before to after | Median latency, before to after |
+|---|---:|---:|
+| 1-for-1 | 20 to 20 | 102 to 103 ms |
+| 3-for-3 | 32 to 24 | 130 to 108 ms |
+| 10-for-10 | **74 to 38** | **234 to 144 ms** |
 
-### Backend with Docker
+All 1,200 measured requests succeeded and valuation snapshots matched except for
+generated IDs. **1-for-1 did not improve.** Smaller-trade tail latency was mixed;
+the 3-for-3 second-round p95/p99 regressed despite a lower median. These are
+synthetic local results, not production traffic, throughput, or scale claims.
+See [the protocol and per-round distributions](backend/docs/trade-performance.md)
+and [the standard-library summarizer](backend/scripts/summarize_trade_benchmark.py).
 
-```bash
-cd backend
-docker compose up --build
-```
+## Publication and remaining verification
 
-The API will be available at:
+The repository contains a backend Dockerfile, not a manifest proving current
+cloud settings. Its image does not build or serve `www/`. The shared legacy
+client defaults to the owner-confirmed backend at
+`https://tradeball-backend.onrender.com` (`/api/v1` for application requests).
+A read-only health GET on October 17 initially timed out. On October 18 the owner
+restored paused Supabase and verified health returned `UP` with liveness/readiness
+groups. This verifies existing backend health, not deployment of the new local
+changes. The backend remains on its confirmed **Free** plan. Frontend hosting,
+workspace billing limits, and the live commit remain unconfirmed.
+The backend watches `main` with **On Commit** auto-deploy and root
+`backend`; pushing backend changes to `main` can deploy automatically. Prepared
+changes remain on local branch `feature/tradeball-publication-review`.
+The new React workflow is not claimed to be live.
 
-```text
-http://localhost:8080
-```
+A frontend host must install/build from the repository root and publish **`www`**
+to preserve both `/index.html` and `/compare/index.html`, with the confirmed
+HTTPS API base and matching backend CORS origin. A later release must verify
+both clients' API bases, real deployed authentication/trades, and asset paths.
+No database or Redis migration is needed for this frontend build.
 
-Swagger UI:
-
-```text
-http://localhost:8080/swagger-ui.html
-```
-
-Health check:
-
-```text
-http://localhost:8080/actuator/health
-```
-
-### Backend without the application container
-
-Start the infrastructure:
-
-```bash
-cd backend
-docker compose up -d postgres redis
-```
-
-Configure the required environment variables, then run:
-
-```bash
-mvn spring-boot:run
-```
-
-### Frontend
-
-The frontend API base URL is configured through `www/js/tradeball-api.js` and defaults to the deployed TradeBall backend in production.
-
-The frontend is intentionally API-driven: player data, roster state, authentication, fantasy valuation, and trade analysis come from the backend.
-
----
-
-## Testing
-
-The backend includes unit and API-level tests covering core fantasy and application behavior.
-
-```bash
-cd backend
-mvn clean test
-```
-
-Additional verification:
-
-```bash
-mvn verify
-mvn -DskipTests package
-```
-
-Tests cover areas including:
-
-- Fantasy Z-score calculations
-- Trade scoring
-- Buy-low / sell-high logic
-- Roster authorization
-- Authentication
-- Player endpoints
-- Roster endpoints
-- Trade endpoints
-- PostgreSQL-backed integration scenarios
-
----
-
-## Production Deployment
-
-TradeBall is structured so the frontend and backend can be deployed independently.
-
-```text
-Frontend
-   │
-   ▼
-Cloud-hosted web client
-   │
-   │ HTTPS / REST
-   ▼
-Render — Spring Boot API
-   │
-   ├── Supabase PostgreSQL
-   │
-   └── Redis
-```
-
-Production configuration is supplied through environment variables rather than committed secrets.
-
-The production backend uses a unique JWT secret, an explicit CORS allow-list, managed PostgreSQL, managed Redis, and live NBA data configuration.
-
-The production NBA dataset is synchronized through protected admin endpoints rather than automatically performing a long-running synchronization during application startup.
-
----
-
-## Design Principles
-
-### Backend as the Source of Truth
-
-All security-sensitive and business-critical logic lives on the server.
-
-The frontend is a client of the API rather than a second implementation of the trade engine.
-
-### Explainable Scoring
-
-Trade recommendations are backed by category-level statistics instead of an opaque single-number model.
-
-Managers can see which categories drive the evaluation.
-
-### Production-Oriented Infrastructure
-
-The project uses persistent PostgreSQL storage, migrations, caching, JWT security, containerization, health checks, automated tests, and CI rather than relying on local-only state.
-
-### Development / Production Separation
-
-Development fallback data and seeded development configuration are isolated from production behavior.
-
-Production requires explicit configuration for databases, authentication secrets, CORS, caching, and live NBA data.
-
----
-
-## Future Improvements
-
-- More configurable league scoring settings
-- Additional player valuation models
-- More advanced trade recommendations
-- Expanded historical analytics
-- Additional fantasy league integrations
-- Deeper mobile-specific functionality
-
----
-
-## License
-
-This project is licensed under the MIT License.
+Current npm audit findings are separately documented in
+[publication review](docs/publication-review.md): four inherited Capacitor/CLI
+findings, with none reported for the added frontend dependency tree. Native
+device validation and remediation of the inherited mobile findings remain open.
+No license file is currently supplied; the previous unsupported MIT badge/claim
+has been removed.

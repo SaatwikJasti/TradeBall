@@ -61,7 +61,7 @@ public class PlayerService {
         return playerMapper.toResponse(requirePlayer(id));
     }
 
-    @Cacheable(cacheNames = "playerSearch", key = "#q + '-' + #pageable.pageNumber + '-' + #pageable.pageSize")
+    @Cacheable(cacheNames = "playerSearch", key = "#q + '-' + #pageable.pageNumber + '-' + #pageable.pageSize + '-' + #pageable.sort")
     @Transactional(readOnly = true)
     public PageResponse<PlayerResponse> search(String q, Pageable pageable) {
         String query = q == null ? "" : q.trim();

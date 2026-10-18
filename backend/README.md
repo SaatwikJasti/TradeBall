@@ -119,6 +119,42 @@ Use the **direct** connection (`db.<project-ref>.supabase.co:5432`) or the **ses
 
 ## Tests
 
+### PostgreSQL trade checks and performance experiment
+
+With Docker Desktop's engine running, `mvn --batch-mode verify` runs the Flyway
+schema checks and `TradeEvaluationPostgresIT` against disposable PostgreSQL
+containers. The latter exercises trade evaluation, history, invalid input,
+season-specific missing stats, and resource ownership through the API.
+
+The benchmark is opt-in. See [trade-performance.md](docs/trade-performance.md)
+for the deterministic fixture, exact commands, cache/warmup rules, measurement
+boundaries, and result interpretation. No upstream or production service is used.
+
+The trade loader uses two batch reads per side and reconstructs input order;
+population queries and history writes remain unchanged. The experiment measures
+this change rather than assuming repeated queries determine all request latency.
+
+### Input validation and search-cache regression checks
+
+Trade evaluation rejects null and nonpositive player IDs before database access.
+Search cache entries include the full requested sort, so changing sort direction
+does not reuse a result with the wrong ordering.
+
+```bash
+mvn -Dtest=TradeApiTest,PlayerApiTest test
+mvn verify
+```
+
+`TradeApiTest.rejectsNullPlayerIdsWithoutPersistingTrade` verifies HTTP 400 for
+null entries on either side and checks that no trade is saved.
+`PlayerApiTest.searchCacheRespectsSortDirection` warms the ascending search cache,
+then verifies descending results with the same query and page size. The test
+clears caches before seeding so cached player IDs cannot leak between cases.
+
+The default API tests run with H2 and Caffeine. They do not establish PostgreSQL
+or Redis compatibility. The PostgreSQL Testcontainers tests require Docker;
+check the skipped-test count when interpreting `mvn verify` results.
+
 ```bash
 mvn clean test
 ```

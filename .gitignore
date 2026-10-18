@@ -1,5 +1,22 @@
 # Dependencies
 node_modules/
+www/compare/
+.env.local
+.env.*
+!.env.example
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.db-*
+*.mv.db
+*.hprof
+frontend/coverage/
+frontend/.test-temp/
+
+# Preserve full-page local evidence without publishing account/roster UI.
+/images/react-comparison-desktop.jpg
+/images/react-comparison-mobile.jpg
 
 # Android build
 android/.gradle/
