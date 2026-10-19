@@ -7,9 +7,24 @@ is the name shown in the client.
 
 The original JavaScript/Capacitor application remains in `www/`. A focused
 React + TypeScript comparison workflow builds alongside it into `www/compare/`.
-The October backend and React improvements have been **verified locally**; their
-remote CI execution and publication alongside an existing deployment are not
-verified. No new deployment or league adoption is claimed.
+The backend and both web clients were deployed and browser-verified on October
+18, 2026, after [PR #1](https://github.com/SaatwikJasti/TradeBall/pull/1) passed
+GitHub Actions CI. Deployment verification is separate from the local performance
+experiment below. No fantasy-league adoption of these changes is claimed.
+
+## Public demo
+
+- [Original app — create an account here](https://tradeball-web.onrender.com/index.html)
+- [React + TypeScript trade comparison](https://tradeball-web.onrender.com/compare/index.html)
+- [Backend health](https://tradeball-backend.onrender.com/actuator/health);
+  API base: `https://tradeball-backend.onrender.com/api/v1`.
+
+New accounts are created through **Create account in the original app**. Then
+sign in to the comparison page with the same credentials, create/select a roster,
+add players you own, choose outgoing and incoming players, and evaluate the trade.
+The clients share a session on this frontend origin. Allow time for the Free
+backend to start after inactivity; the original app also loads player stats in
+the background. No public shared-account password is provided.
 
 ## What the comparison workflow does
 
@@ -131,6 +146,20 @@ the localhost default. See [the frontend guide](frontend/README.md) for componen
 state, API, Windows test-temp, and Capacitor details; see [the backend guide](backend/README.md)
 for its separate Docker development setup and production environment variables.
 
+To reproduce the deployed API configuration rather than the local fallback:
+
+```powershell
+$env:VITE_API_BASE = 'https://tradeball-backend.onrender.com/api/v1'
+npm ci
+npm run build
+```
+
+This builds the comparison into `www/compare` while preserving the original
+`www/index.html` and scripts. The static host publishes the complete `www`
+directory. Set the variable before building; never put database or JWT secrets
+in frontend variables. To return to local Vite development in that terminal,
+run `Remove-Item Env:VITE_API_BASE -ErrorAction SilentlyContinue`.
+
 ## Testing and CI status
 
 From the repository root:
@@ -156,9 +185,13 @@ Skipped PostgreSQL tests must never be counted as passes when Docker is unavaila
 The benchmark was run separately for the completed performance experiment; it is
 not required on ordinary verification runs. No benchmark was rerun during publication preparation.
 
-GitHub Actions definitions exist for backend Maven verification and frontend
-`npm ci`, tests, and build/typecheck. The new jobs have not been verified on GitHub
-for these unpushed changes. This is **CI**, not verified CI/CD or deployment automation.
+GitHub Actions CI passed on the reviewed PR and merged application commit:
+[frontend tests/typecheck/build](https://github.com/SaatwikJasti/TradeBall/actions/runs/39170201160)
+and [backend Maven verification](https://github.com/SaatwikJasti/TradeBall/actions/runs/39170201198).
+Inspected PR logs confirmed 31 Surefire passes and four PostgreSQL Failsafe passes,
+with only the opt-in benchmark skipped. GitHub Actions provides **CI**; Render
+deployment is a separate host action, with backend On Commit and frontend
+Auto-Deploy Off.
 
 ## Measured local performance
 
@@ -183,27 +216,42 @@ synthetic local results, not production traffic, throughput, or scale claims.
 See [the protocol and per-round distributions](backend/docs/trade-performance.md)
 and [the standard-library summarizer](backend/scripts/summarize_trade_benchmark.py).
 
-## Publication and remaining verification
+## Verified deployment and limitations
 
-The repository contains a backend Dockerfile, not a manifest proving current
-cloud settings. Its image does not build or serve `www/`. The shared legacy
-client defaults to the owner-confirmed backend at
-`https://tradeball-backend.onrender.com` (`/api/v1` for application requests).
-A read-only health GET on October 17 initially timed out. On October 18 the owner
-restored paused Supabase and verified health returned `UP` with liveness/readiness
-groups. This verifies existing backend health, not deployment of the new local
-changes. The backend remains on its confirmed **Free** plan. Frontend hosting,
-workspace billing limits, and the live commit remain unconfirmed.
-The backend watches `main` with **On Commit** auto-deploy and root
-`backend`; pushing backend changes to `main` can deploy automatically. Prepared
-changes remain on local branch `feature/tradeball-publication-review`.
-The new React workflow is not claimed to be live.
+Both clients and the backend run application commit
+`b3ff73f403358aca528ff67337f67550489e1f7d`. The Render backend remains on **Free**
+with Supabase PostgreSQL and the existing Redis service. The separate Render
+Static Site builds from repository root, publishes `www`, and has Auto-Deploy
+**Off**. No paid upgrade was enabled. Its exact HTTPS origin was appended to
+backend CORS while preserving previous required origins; unrelated origins were
+rejected. No wildcard was added and no database migration was needed.
 
-A frontend host must install/build from the repository root and publish **`www`**
-to preserve both `/index.html` and `/compare/index.html`, with the confirmed
-HTTPS API base and matching backend CORS origin. A later release must verify
-both clients' API bases, real deployed authentication/trades, and asset paths.
-No database or Redis migration is needed for this frontend build.
+Public browser verification used a dedicated test account: original-app account
+and roster creation, search, Josh Hart → Nikola Jokic evaluation, and saved
+history; React session restoration, explicit sign-in/sign-out, roster additions,
+empty-trade validation, selection/removal, duplicate/overlap prevention, actual
+valuation and nine category results. Both evaluations scored 100 (Great Trade,
+`heuristic-v2`) and appeared in shared history. Backend health returned HTTP 200
+with `UP` after the merge; Render then marked the CORS rollout live and public
+API/browser checks passed. This is a dated
+deployment smoke test, not an uptime or production-scale guarantee.
+
+- **Free backend startup can be slow**, including after inactivity.
+- **The original client fetches stats for all 506 players** in the observed
+  deployed dataset, so initial loading is slow on Free compute. The React
+  comparison uses search and the selected roster.
+- **NBA data freshness remains unverified**; a working API and displayed values
+  do not prove current-season coverage or synchronization freshness.
+- **Performance improvements were measured locally, not in production.** The
+  synthetic benchmark does not measure hosted latency, concurrency, or capacity.
+- Real JWT expiry and network-failure behavior were verified locally; this
+  public smoke test did not alter production session lifetimes or simulate outages.
+
+See [the deployment handoff and rollback reference](docs/deployment-handoff.md)
+for the observed hosting settings and [the earlier publication review](docs/publication-review.md)
+for dependency findings and the preserved preparation plan. Future backend
+changes under `backend` merged to `main` can deploy automatically; documentation
+publication does not require a new application deployment.
 
 Current npm audit findings are separately documented in
 [publication review](docs/publication-review.md): four inherited Capacitor/CLI
