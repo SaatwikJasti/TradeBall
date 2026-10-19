@@ -1,5 +1,13 @@
 # Publication review and proposed release plan
 
+**Completed release:** PR #1 was merged and application SHA
+`b3ff73f403358aca528ff67337f67550489e1f7d` deployed and browser-verified on
+October 18, 2026. Both public clients are at https://tradeball-web.onrender.com .
+See [the final deployment handoff](deployment-handoff.md) for actual settings,
+verification, rollback reference, and limitations. The preparation plan below
+is preserved as historical evidence; its pending steps and approval restrictions
+describe the pre-release state, not the current deployment status.
+
 Reviewed October 17, 2026. This is a reviewable plan, not a deployment record.
 Updated October 18, 2026 with owner-confirmed backend Render settings. The owner
 subsequently authorized the four reviewed commits, a push only of
